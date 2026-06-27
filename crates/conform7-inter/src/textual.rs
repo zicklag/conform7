@@ -208,38 +208,6 @@ impl ReadState {
     }
 }
 
-/// Apply a set of interned annotations to an instruction.
-fn apply_annotations(instr: &mut Instruction, annotations: &[(u32, Option<u32>)]) {
-    instr.annotations.extend_from_slice(annotations);
-}
-
-/// Format an instruction's annotations for textual Inter output.
-///
-/// Boolean annotations are emitted as `__name`. Value annotations are
-/// emitted as `__name=value`; if the value contains whitespace, it is
-/// quoted.
-#[allow(dead_code)]
-fn format_annotations(tree: &InterTree, instr: &Instruction) -> String {
-    let mut s = String::new();
-    for (key_id, val) in &instr.annotations {
-        let key = tree.get_string(*key_id).unwrap_or("?");
-        match val {
-            Some(vid) => {
-                let value = tree.get_string(*vid).unwrap_or("?");
-                if value.contains(' ') || value.contains('\t') || value.contains('\n') {
-                    s.push_str(&format!(" __{}=\"{}\"", key, value));
-                } else {
-                    s.push_str(&format!(" __{}={}", key, value));
-                }
-            }
-            None => {
-                s.push_str(&format!(" __{}", key));
-            }
-        }
-    }
-    s
-}
-
 /// Parse a single line of textual Inter.
 ///
 /// This is the core dispatch function. It:
@@ -257,15 +225,7 @@ fn parse_line(
     let trimmed = line.trim();
 
     // Strip trailing annotations (e.g., `__foo __bar=2`)
-    let (content, raw_annotations) = split_annotations(trimmed);
-    let annotations: Vec<(u32, Option<u32>)> = raw_annotations
-        .iter()
-        .map(|(k, v)| {
-            let key_id = tree.intern_string(k);
-            let val_id = if v.is_empty() { None } else { Some(tree.intern_string(v)) };
-            (key_id, val_id)
-        })
-        .collect();
+    let (content, _annotations) = split_annotations(trimmed);
 
     if content.is_empty() || content.starts_with('#') {
         // Comment line — store as a Comment instruction for round-trip fidelity
@@ -276,10 +236,8 @@ fn parse_line(
             let text_id = tree.intern_string(comment_text);
             instr.set_field(1, text_id);
         }
-        apply_annotations(&mut instr, &annotations);
-        let pkg = get_current_package_mut(tree, state);
-        apply_annotations(&mut instr, &annotations);
-        pkg.add_instruction(instr);
+            let pkg = get_current_package_mut(tree, state);
+            pkg.add_instruction(instr);
         return Ok(());
     }
 
@@ -296,45 +254,45 @@ fn parse_line(
     let keyword = tokens[0];
 
     match keyword {
-        "packagetype" => parse_packagetype(tree, state, &tokens, &annotations, line_num)?,
-        "primitive" => parse_primitive(tree, state, &tokens, &annotations, line_num)?,
-        "package" => parse_package(tree, state, &tokens, &annotations, line_num)?,
-        "constant" => parse_constant(tree, state, &tokens, &annotations, line_num)?,
-        "typename" => parse_typename(tree, state, &tokens, &annotations, line_num)?,
-        "variable" => parse_variable(tree, state, &tokens, &annotations, line_num)?,
-        "code" => parse_code(tree, state, &annotations, line_num)?,
-        "inv" => parse_inv(tree, state, &tokens, &annotations, line_num)?,
-        "val" => parse_val(tree, state, &tokens, &annotations, line_num)?,
-        "instance" => parse_instance(tree, state, &tokens, &annotations, line_num)?,
-        "property" => parse_property(tree, state, &tokens, &annotations, line_num)?,
-        "propertyvalue" => parse_propertyvalue(tree, state, &tokens, &annotations, line_num)?,
-        "permission" => parse_permission(tree, state, &tokens, &annotations, line_num)?,
-        "pragma" => parse_pragma(tree, state, &tokens, &annotations, line_num)?,
-        "insert" => parse_insert(tree, state, &tokens, &annotations, line_num)?,
-        "nop" => { /* nop: no action needed; annotations are dropped */ }
-        "plug" => parse_plug(tree, state, &tokens, &annotations, line_num)?,
-        "socket" => parse_socket(tree, state, &tokens, &annotations, line_num)?,
+        "packagetype" => parse_packagetype(tree, state, &tokens, line_num)?,
+        "primitive" => parse_primitive(tree, &tokens, line_num)?,
+        "package" => parse_package(tree, state, &tokens, line_num)?,
+        "constant" => parse_constant(tree, state, &tokens, line_num)?,
+        "typename" => parse_typename(tree, state, &tokens, line_num)?,
+        "variable" => parse_variable(tree, state, &tokens, line_num)?,
+        "code" => parse_code(tree, state, line_num)?,
+        "inv" => parse_inv(tree, state, &tokens, line_num)?,
+        "val" => parse_val(tree, state, &tokens, line_num)?,
+        "instance" => parse_instance(tree, state, &tokens, line_num)?,
+        "property" => parse_property(tree, state, &tokens, line_num)?,
+        "propertyvalue" => parse_propertyvalue(tree, state, &tokens, line_num)?,
+        "permission" => parse_permission(tree, state, &tokens, line_num)?,
+        "pragma" => parse_pragma(tree, state, &tokens, line_num)?,
+        "insert" => parse_insert(tree, state, &tokens, line_num)?,
+        "nop" => { /* nop: no action needed */ }
+        "plug" => parse_plug(tree, state, &tokens, line_num)?,
+        "socket" => parse_socket(tree, state, &tokens, line_num)?,
         "version" => { /* version pseudo-construct: ignore for now */ }
-        "lab" => parse_lab(tree, state, &tokens, &annotations, line_num)?,
-        "label" => parse_label(tree, state, &tokens, &annotations, line_num)?,
-        "local" => parse_local(tree, state, &tokens, &annotations, line_num)?,
+        "lab" => parse_lab(tree, state, &tokens, line_num)?,
+        "label" => parse_label(tree, state, &tokens, line_num)?,
+        "local" => parse_local(tree, state, &tokens, line_num)?,
         "assembly" | "evaluation" | "ref" | "reference" => {
             // Code-level constructs — store as generic instruction
-            add_instruction(tree, state, keyword, &tokens, &annotations, line_num)?;
+            add_instruction(tree, state, keyword, &tokens, line_num)?;
         }
         "cast" => {
             // Cast has special syntax: cast <to_type> <- <from_type>
-            parse_cast(tree, state, &tokens, &annotations, line_num)?;
+            parse_cast(tree, state, &tokens, line_num)?;
         }
         "splat" => {
             // Splat is special: its argument is a raw string that may contain
             // embedded quotes and spaces that the tokenizer can't handle.
             // We read the raw content after the keyword.
-            parse_splat(tree, state, content, &annotations, line_num)?;
+            parse_splat(tree, state, content, line_num)?;
         }
         // Labels like `.begin` start with a dot — they're label definitions
         kw if kw.starts_with('.') => {
-            parse_dot_label(tree, state, &tokens, &annotations, line_num)?;
+            parse_dot_label(tree, state, &tokens, line_num)?;
         }
         _ => {
             return Err(TextualError::ParseError {
@@ -511,7 +469,6 @@ fn parse_packagetype(
     tree: &mut InterTree,
     _state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -525,7 +482,6 @@ fn parse_packagetype(
     let name_id = tree.intern_string(name);
     let mut instr = Instruction::new(ConstructId::Packagetype);
     instr.set_field(1, name_id);
-    apply_annotations(&mut instr, annotations);
     tree.root.add_instruction(instr);
     Ok(())
 }
@@ -539,9 +495,7 @@ fn parse_packagetype(
 /// `val val -> val`) is optional in textual Inter.
 fn parse_primitive(
     tree: &mut InterTree,
-    _state: &mut ReadState,
     tokens: &[&str],
-    _annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -569,7 +523,6 @@ fn parse_primitive(
         let sig_id = tree.intern_string(&sig);
         instr.set_field(2, sig_id);
     }
-    apply_annotations(&mut instr, _annotations);
     tree.root.add_instruction(instr);
 
     Ok(())
@@ -586,7 +539,6 @@ fn parse_package(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    _annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 3 {
@@ -657,7 +609,6 @@ fn parse_constant(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 3 {
@@ -720,7 +671,6 @@ fn parse_constant(
     instr.set_field(2, value.format as u32);
     instr.set_field(3, value.content);
     instr.type_marker = marker_id;
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -740,7 +690,6 @@ fn parse_typename(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 3 {
@@ -781,7 +730,6 @@ fn parse_typename(
     instr.set_field(1, sym_id);
     instr.set_field(2, type_id);
     instr.set_field(3, op_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -799,7 +747,6 @@ fn parse_variable(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -862,7 +809,6 @@ fn parse_variable(
         instr.set_field(3, val.content);
     }
     instr.type_marker = marker_id;
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -877,12 +823,10 @@ fn parse_variable(
 fn parse_code(
     tree: &mut InterTree,
     state: &mut ReadState,
-    annotations: &[(u32, Option<u32>)],
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let pkg = get_current_package_mut(tree, state);
-    let mut instr = instr_at_depth(state, ConstructId::Code);
-    apply_annotations(&mut instr, annotations);
+    let instr = instr_at_depth(state, ConstructId::Code);
     pkg.add_instruction(instr);
     Ok(())
 }
@@ -899,7 +843,6 @@ fn parse_local(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -938,7 +881,6 @@ fn parse_local(
     let mut instr = instr_at_depth(state, ConstructId::Local);
     instr.set_field(1, sym_id);
     instr.type_marker = marker_id;
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -955,7 +897,6 @@ fn parse_lab(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -977,7 +918,6 @@ fn parse_lab(
 
     let mut instr = instr_at_depth(state, ConstructId::Lab);
     instr.set_field(1, sym_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -993,7 +933,6 @@ fn parse_label(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1003,7 +942,7 @@ fn parse_label(
         });
     }
     let name = tokens[1].to_string();
-    parse_dot_label_by_name(tree, state, &name, annotations)
+    parse_dot_label_by_name(tree, state, &name)
 }
 
 /// Parse a dotted label definition (e.g., `.begin`).
@@ -1011,18 +950,16 @@ fn parse_dot_label(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let name = tokens[0].to_string();
-    parse_dot_label_by_name(tree, state, &name, annotations)
+    parse_dot_label_by_name(tree, state, &name)
 }
 
 fn parse_dot_label_by_name(
     tree: &mut InterTree,
     state: &mut ReadState,
     name: &str,
-    annotations: &[(u32, Option<u32>)],
 ) -> Result<(), TextualError> {
     let name = name.trim_start_matches('.');
     let pkg = get_current_package_mut(tree, state);
@@ -1036,7 +973,6 @@ fn parse_dot_label_by_name(
 
     let mut instr = instr_at_depth(state, ConstructId::Label);
     instr.set_field(1, sym_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1054,7 +990,6 @@ fn parse_inv(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1085,7 +1020,6 @@ fn parse_inv(
     let mut instr = instr_at_depth(state, ConstructId::Inv);
     instr.set_field(1, target_id);
     let pkg = get_current_package_mut(tree, state);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1104,7 +1038,6 @@ fn parse_val(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1134,7 +1067,6 @@ fn parse_val(
         instr.type_marker = Some(tree.intern_string(&marker));
     }
     let pkg = get_current_package_mut(tree, state);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1150,7 +1082,6 @@ fn parse_instance(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1202,7 +1133,6 @@ fn parse_instance(
         instr.set_field(2, val.format as u32);
         instr.set_field(3, val.content);
     }
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1218,7 +1148,6 @@ fn parse_property(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1253,7 +1182,6 @@ fn parse_property(
     let mut instr = instr_at_depth(state, ConstructId::Property);
     instr.set_field(1, sym.id);
     instr.type_marker = marker_id;
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1272,7 +1200,6 @@ fn parse_propertyvalue(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 4 {
@@ -1336,7 +1263,6 @@ fn parse_propertyvalue(
     instr.set_field(2, prop_id);
     instr.set_field(3, value.format as u32);
     instr.set_field(4, value.content);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1354,7 +1280,6 @@ fn parse_permission(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 5 {
@@ -1393,7 +1318,6 @@ fn parse_permission(
     let mut instr = instr_at_depth(state, ConstructId::Permission);
     instr.set_field(1, kind_id);
     instr.set_field(2, prop_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1409,7 +1333,6 @@ fn parse_pragma(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1446,7 +1369,6 @@ fn parse_pragma(
     if let Some(vid) = value_id {
         instr.set_field(2, vid);
     }
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
     Ok(())
 }
@@ -1462,7 +1384,6 @@ fn parse_splat(
     tree: &mut InterTree,
     state: &mut ReadState,
     line: &str,
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     // Find the content after 'splat' keyword
@@ -1483,7 +1404,6 @@ fn parse_splat(
     instr.set_field(1, value.format as u32);
     instr.set_field(2, value.content);
     let pkg = get_current_package_mut(tree, state);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1500,7 +1420,6 @@ fn parse_cast(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 4 {
@@ -1520,7 +1439,6 @@ fn parse_cast(
     instr.set_field(1, to_id);
     instr.set_field(2, from_id);
     let pkg = get_current_package_mut(tree, state);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1536,12 +1454,10 @@ fn parse_insert(
     tree: &mut InterTree,
     state: &mut ReadState,
     _tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let pkg = get_current_package_mut(tree, state);
-    let mut instr = instr_at_depth(state, ConstructId::Insert);
-    apply_annotations(&mut instr, annotations);
+    let instr = instr_at_depth(state, ConstructId::Insert);
     pkg.add_instruction(instr);
     Ok(())
 }
@@ -1558,7 +1474,6 @@ fn parse_plug(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1593,7 +1508,6 @@ fn parse_plug(
     // Add a plug instruction to preserve it during round-trip
     let mut instr = instr_at_depth(state, ConstructId::Plug);
     instr.set_field(1, sym_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1612,7 +1526,6 @@ fn parse_socket(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
@@ -1645,7 +1558,6 @@ fn parse_socket(
     // Add a socket instruction to preserve it during round-trip
     let mut instr = instr_at_depth(state, ConstructId::Socket);
     instr.set_field(1, sym_id);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -1662,7 +1574,6 @@ fn add_instruction(
     state: &mut ReadState,
     keyword: &str,
     tokens: &[&str],
-    annotations: &[(u32, Option<u32>)],
     line_num: usize,
 ) -> Result<(), TextualError> {
     let construct = ConstructId::from_keyword(keyword).ok_or_else(|| {
@@ -1699,7 +1610,6 @@ fn add_instruction(
         }
     }
     let pkg = get_current_package_mut(tree, state);
-    apply_annotations(&mut instr, annotations);
     pkg.add_instruction(instr);
     Ok(())
 }

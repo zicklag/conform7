@@ -315,16 +315,6 @@ pub struct Instruction {
     /// name/value in textual Inter. Used for constructs like
     /// `constant (K_number) C_x = 1` or `val (int32) 17`.
     pub type_marker: Option<u32>,
-
-    /// Annotations attached to this instruction in textual Inter.
-    ///
-    /// Each entry is `(key_id, value_id)` where the IDs are interned
-    /// string IDs. A `None` value indicates a boolean annotation (no
-    /// value, written as `__name`); a `Some` value is written as
-    /// `__name=value` or `__name="value with spaces"`.
-    ///
-    /// Annotations are preserved during textual Inter round-trips.
-    pub annotations: Vec<(u32, Option<u32>)>,
 }
 
 impl Instruction {
@@ -334,13 +324,7 @@ impl Instruction {
     /// Additional words can be set with [`set_field`].
     /// Depth defaults to 0 (top-level in the package).
     pub fn new(construct: ConstructId) -> Self {
-        Self {
-            construct,
-            words: vec![construct as u32],
-            depth: 0,
-            type_marker: None,
-            annotations: Vec::new(),
-        }
+        Self { construct, words: vec![construct as u32], depth: 0, type_marker: None }
     }
 
     /// Create an instruction with a pre-built frame.
@@ -350,13 +334,7 @@ impl Instruction {
     /// Depth defaults to 0 (top-level in the package).
     pub fn with_words(construct: ConstructId, mut words: Vec<u32>) -> Self {
         words.insert(0, construct as u32);
-        Self {
-            construct,
-            words,
-            depth: 0,
-            type_marker: None,
-            annotations: Vec::new(),
-        }
+        Self { construct, words, depth: 0, type_marker: None }
     }
 
     /// The total number of words in this instruction's frame, including

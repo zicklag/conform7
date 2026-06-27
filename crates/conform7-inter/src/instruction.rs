@@ -272,6 +272,11 @@ impl ConstructId {
 /// have construct-specific meanings (symbol IDs, value pairs, type references,
 /// etc.).
 ///
+/// The `depth` field records the nesting depth of this instruction within
+/// its package. This is used for textual Inter output (indentation).
+/// Depth 0 means top-level in the package. Higher values mean deeper
+/// nesting (e.g., a `val` inside an `inv` inside a `code` block).
+///
 /// This corresponds to `inter_tree_node` in the C implementation, though
 /// our representation is simpler: we store the frame as a `Vec<u32>` rather
 /// than using the C approach of a separately-allocated array with extent
@@ -297,6 +302,13 @@ pub struct Instruction {
     /// The full frame of words. `words[0]` is always the construct ID.
     /// The remaining words have construct-specific meanings.
     pub words: Vec<u32>,
+    /// Nesting depth within the package. Used for textual Inter indentation.
+    /// 0 = top-level, 1 = inside a code block, 2 = inside an inv, etc.
+    pub depth: usize,
+    /// Optional type marker text (interned string ID) written before the
+    /// name/value in textual Inter. Used for constructs like
+    /// `constant (K_number) C_x = 1` or `val (int32) 17`.
+    pub type_marker: Option<u32>,
 }
 
 impl Instruction {
@@ -304,17 +316,19 @@ impl Instruction {
     ///
     /// The frame is initialized with the construct ID as word 0.
     /// Additional words can be set with [`set_field`].
+    /// Depth defaults to 0 (top-level in the package).
     pub fn new(construct: ConstructId) -> Self {
-        Self { construct, words: vec![construct as u32] }
+        Self { construct, words: vec![construct as u32], depth: 0, type_marker: None }
     }
 
     /// Create an instruction with a pre-built frame.
     ///
     /// The construct ID is automatically inserted as word 0. The provided
     /// `words` should contain the data words only (without the construct ID).
+    /// Depth defaults to 0 (top-level in the package).
     pub fn with_words(construct: ConstructId, mut words: Vec<u32>) -> Self {
         words.insert(0, construct as u32);
-        Self { construct, words }
+        Self { construct, words, depth: 0, type_marker: None }
     }
 
     /// The total number of words in this instruction's frame, including

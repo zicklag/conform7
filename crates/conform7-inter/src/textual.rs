@@ -48,7 +48,7 @@
 //! (modulo auto-inserted declarations like `packagetype` and `primitive`).
 
 use crate::instruction::{ConstructId, Instruction};
-use crate::tree::{InterTree, Package, PackageType, SymbolType, WiringTarget};
+use crate::tree::{InterTree, Package, PackageType, Symbol, SymbolType, WiringTarget};
 use crate::value::{unescape_text, InterValue, ValueFormat};
 
 // ---------------------------------------------------------------------------
@@ -131,6 +131,7 @@ pub fn read(text: &str) -> Result<InterTree, TextualError> {
         }
 
         // Parse the line
+        state.current_instr_depth = indent.saturating_sub(state.current_depth());
         parse_line(&mut tree, &mut state, content, line_num)?;
     }
 
@@ -151,6 +152,9 @@ struct ReadState {
     package_stack: Vec<(String, usize)>,
     /// Current package name path (e.g., "/main/source_text").
     current_path: Vec<String>,
+    /// Current instruction nesting depth within the current package.
+    /// Used for textual Inter output indentation.
+    current_instr_depth: usize,
 }
 
 impl ReadState {
@@ -158,6 +162,7 @@ impl ReadState {
         Self {
             package_stack: Vec::new(),
             current_path: vec![],
+            current_instr_depth: 0,
         }
     }
 
@@ -242,20 +247,16 @@ fn parse_line(
         "plug" => parse_plug(tree, state, &tokens, line_num)?,
         "socket" => parse_socket(tree, state, &tokens, line_num)?,
         "version" => { /* version pseudo-construct: ignore for now */ }
-        "lab" => {
-            // lab <label-name>
-            let pkg = get_current_package_mut(tree, state);
-            pkg.add_instruction(Instruction::new(ConstructId::Lab));
-        }
-        "assembly" | "cast" | "evaluation" | "label"
-        | "local" | "ref" | "reference" | "splat" => {
+        "lab" => parse_lab(tree, state, &tokens, line_num)?,
+        "label" => parse_label(tree, state, &tokens, line_num)?,
+        "local" => parse_local(tree, state, &tokens, line_num)?,
+        "assembly" | "cast" | "evaluation" | "ref" | "reference" | "splat" => {
             // Code-level constructs — store as generic instruction
             add_instruction(tree, state, keyword, &tokens, line_num)?;
         }
         // Labels like `.begin` start with a dot — they're label definitions
         kw if kw.starts_with('.') => {
-            let pkg = get_current_package_mut(tree, state);
-            pkg.add_instruction(Instruction::new(ConstructId::Label));
+            parse_dot_label(tree, state, &tokens, line_num)?;
         }
         _ => {
             return Err(TextualError::ParseError {
@@ -353,7 +354,6 @@ fn tokenize(line: &str) -> Vec<&str> {
 /// Package types are implicitly declared — we just validate the syntax.
 /// The C implementation auto-declares package types when they're first
 /// referenced, so we don't need to store them explicitly.
-
 fn parse_packagetype(
     _tree: &mut InterTree,
     tokens: &[&str],
@@ -417,13 +417,35 @@ fn parse_package(
             message: "package requires name and type".to_string(),
         });
     }
-    let name = tokens[1].to_string();
-    let type_str = tokens[2];
+    let mut idx = 1;
+    let type_marker = parse_type_marker(tokens, idx);
+    let pkg_type_marker = type_marker.0;
+    idx = type_marker.1;
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "package requires name and type".to_string(),
+        });
+    }
+    let name = tokens[idx].to_string();
+    idx += 1;
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "package requires a package type".to_string(),
+        });
+    }
+    let type_str = tokens[idx];
     let pkg_type = PackageType::from_keyword(type_str);
 
     // Create the package
     let resource_id = tree.alloc_resource_id();
-    let pkg = Package::new(resource_id, name.clone(), pkg_type);
+    let mut pkg = Package::new(resource_id, name.clone(), pkg_type, tree.symbol_counter());
+    if let Some(marker) = pkg_type_marker {
+        pkg.type_marker = Some(tree.intern_string(marker));
+    }
 
     // Create a symbol for this package in the parent's symbols table
     {
@@ -467,13 +489,15 @@ fn parse_constant(
     }
 
     let mut idx = 1;
-    let _type_marker = if tokens[idx].starts_with('(') {
-        idx += 1;
-        true
-    } else {
-        false
-    };
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    idx = next_idx;
 
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "constant requires name and value".to_string(),
+        });
+    }
     let name = tokens[idx].to_string();
     idx += 1;
 
@@ -494,8 +518,12 @@ fn parse_constant(
 
     let value_str = tokens[idx..].join(" ");
 
+    // Intern the type marker early so we don't need to borrow tree again
+    // while the current package is borrowed.
+    let marker_id = type_marker.map(|m| tree.intern_string(m));
+
     // Parse value first (needs &mut tree)
-    let value = parse_value_literal(tree, &value_str, line_num)?;
+    let value = parse_value_literal(tree, state, &value_str, line_num)?;
 
     // Now create symbol and instruction
     let pkg = get_current_package_mut(tree, state);
@@ -508,10 +536,11 @@ fn parse_constant(
         sym.id
     };
 
-    let mut instr = Instruction::new(ConstructId::Constant);
+    let mut instr = instr_at_depth(state, ConstructId::Constant);
     instr.set_field(1, sym_id);
     instr.set_field(2, value.format as u32);
     instr.set_field(3, value.content);
+    instr.type_marker = marker_id;
     pkg.add_instruction(instr);
 
     Ok(())
@@ -565,7 +594,7 @@ fn parse_typename(
         sym.id
     };
 
-    let mut instr = Instruction::new(ConstructId::Typename);
+    let mut instr = instr_at_depth(state, ConstructId::Typename);
     instr.set_field(1, sym_id);
     instr.set_field(2, type_id);
     pkg.add_instruction(instr);
@@ -595,10 +624,15 @@ fn parse_variable(
     }
 
     let mut idx = 1;
-    if tokens[idx].starts_with('(') {
-        idx += 1;
-    }
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    idx = next_idx;
 
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "variable requires a name".to_string(),
+        });
+    }
     let name = tokens[idx].to_string();
     idx += 1;
 
@@ -613,9 +647,13 @@ fn parse_variable(
         None
     };
 
+    // Intern the type marker early so we don't need to borrow tree again
+    // while the current package is borrowed.
+    let marker_id = type_marker.map(|m| tree.intern_string(m));
+
     // Parse value first if present (needs &mut tree)
     let value = if let Some(ref val_str) = value_str {
-        Some(parse_value_literal(tree, val_str, line_num)?)
+        Some(parse_value_literal(tree, state, val_str, line_num)?)
     } else {
         None
     };
@@ -631,12 +669,13 @@ fn parse_variable(
         sym.id
     };
 
-    let mut instr = Instruction::new(ConstructId::Variable);
+    let mut instr = instr_at_depth(state, ConstructId::Variable);
     instr.set_field(1, sym_id);
     if let Some(val) = value {
         instr.set_field(2, val.format as u32);
         instr.set_field(3, val.content);
     }
+    instr.type_marker = marker_id;
     pkg.add_instruction(instr);
 
     Ok(())
@@ -654,17 +693,165 @@ fn parse_code(
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let pkg = get_current_package_mut(tree, state);
-    pkg.add_instruction(Instruction::new(ConstructId::Code));
+    pkg.add_instruction(instr_at_depth(state, ConstructId::Code));
+    Ok(())
+}
+
+/// Parse a `local` variable declaration inside a `_code` package.
+///
+/// Examples:
+/// - `local (int32) argument`
+/// - `local (/main/K_number) x`
+///
+/// Locals are variables scoped to a function body. They are written just
+/// like top-level `variable` declarations but use the `local` construct.
+fn parse_local(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    tokens: &[&str],
+    line_num: usize,
+) -> Result<(), TextualError> {
+    if tokens.len() < 2 {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "local requires a name".to_string(),
+        });
+    }
+
+    let mut idx = 1;
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    idx = next_idx;
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "local requires a name".to_string(),
+        });
+    }
+    let name = tokens[idx].to_string();
+
+    // Intern the type marker early so we don't need to borrow tree again
+    // while the current package is borrowed.
+    let marker_id = type_marker.map(|m| tree.intern_string(m));
+
+    let pkg = get_current_package_mut(tree, state);
+    if !pkg.symbols.has_name(&name) {
+        pkg.symbols.create_symbol(&name);
+    }
+    let sym_id = {
+        let sym = pkg.symbols.get_by_name_mut(&name).unwrap();
+        sym.symbol_type = SymbolType::Variable;
+        sym.id
+    };
+
+    let mut instr = instr_at_depth(state, ConstructId::Local);
+    instr.set_field(1, sym_id);
+    instr.type_marker = marker_id;
+    pkg.add_instruction(instr);
+
+    Ok(())
+}
+
+/// Parse a `lab` (label reference) instruction.
+///
+/// Example: `lab .begin`
+///
+/// The referenced label is resolved to a symbol in the current package.
+/// If it doesn't exist yet, it's created as a placeholder (forward
+/// references to labels are allowed).
+fn parse_lab(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    tokens: &[&str],
+    line_num: usize,
+) -> Result<(), TextualError> {
+    if tokens.len() < 2 {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "lab requires a label name".to_string(),
+        });
+    }
+    let name = tokens[1].trim_start_matches('.').to_string();
+
+    let pkg = get_current_package_mut(tree, state);
+    let sym_id = if let Some(sym) = pkg.symbols.get_by_name(&name) {
+        sym.id
+    } else {
+        let sym = pkg.symbols.create_symbol(&name);
+        sym.symbol_type = SymbolType::Label;
+        sym.id
+    };
+
+    let mut instr = instr_at_depth(state, ConstructId::Lab);
+    instr.set_field(1, sym_id);
+    pkg.add_instruction(instr);
+
+    Ok(())
+}
+
+/// Parse an explicit `label` definition.
+///
+/// Example: `label .begin`
+///
+/// This is the keyword form of a label definition; dotted names like
+/// `.begin` are more common and handled by [`parse_dot_label`].
+fn parse_label(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    tokens: &[&str],
+    line_num: usize,
+) -> Result<(), TextualError> {
+    if tokens.len() < 2 {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "label requires a name".to_string(),
+        });
+    }
+    let name = tokens[1].to_string();
+    parse_dot_label_by_name(tree, state, &name)
+}
+
+/// Parse a dotted label definition (e.g., `.begin`).
+fn parse_dot_label(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    tokens: &[&str],
+    _line_num: usize,
+) -> Result<(), TextualError> {
+    let name = tokens[0].to_string();
+    parse_dot_label_by_name(tree, state, &name)
+}
+
+fn parse_dot_label_by_name(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    name: &str,
+) -> Result<(), TextualError> {
+    let name = name.trim_start_matches('.');
+    let pkg = get_current_package_mut(tree, state);
+    let sym_id = if let Some(sym) = pkg.symbols.get_by_name(name) {
+        sym.id
+    } else {
+        let sym = pkg.symbols.create_symbol(name);
+        sym.symbol_type = SymbolType::Label;
+        sym.id
+    };
+
+    let mut instr = instr_at_depth(state, ConstructId::Label);
+    instr.set_field(1, sym_id);
+    pkg.add_instruction(instr);
+
     Ok(())
 }
 
 /// Parse an `inv` (invoke) instruction.
 ///
-/// Example: `inv !print`
+/// Examples:
+/// - `inv !print`
+/// - `inv /main/OtherFunction`
 ///
-/// Invokes a primitive operation. The primitive must be declared in the
-/// global scope. Arguments to the primitive are child instructions at
-/// higher indentation (typically `val` instructions).
+/// Invokes either a primitive operation (`!name`) or a function/package
+/// reference. Arguments are child instructions at higher indentation.
 fn parse_inv(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -674,21 +861,30 @@ fn parse_inv(
     if tokens.len() < 2 {
         return Err(TextualError::ParseError {
             line: line_num,
-            message: "inv requires a primitive name".to_string(),
+            message: "inv requires a primitive or function name".to_string(),
         });
     }
-    let prim_name = tokens[1].to_string();
+    let target = tokens[1].to_string();
 
-    // Ensure the primitive exists in global scope
-    if !tree.global_scope.has_name(&prim_name) {
-        tree.global_scope.create_symbol(&prim_name);
-        let sym = tree.global_scope.get_by_name_mut(&prim_name).unwrap();
-        sym.symbol_type = SymbolType::Primitive;
-    }
-    let prim_sym = tree.global_scope.get_by_name(&prim_name).unwrap();
+    let target_id = if target.starts_with('!') {
+        // Primitive invocation
+        if !tree.global_scope.has_name(&target) {
+            tree.global_scope.create_symbol(&target);
+            let sym = tree.global_scope.get_by_name_mut(&target).unwrap();
+            sym.symbol_type = SymbolType::Primitive;
+        }
+        tree.global_scope.get_by_name(&target).unwrap().id
+    } else {
+        // Function or symbol invocation — create a wiring symbol for the target
+        let pkg = get_current_package_mut(tree, state);
+        let sym = pkg.symbols.create_symbol(&format!("__inv_ref_{}", pkg.symbols.symbols.len()));
+        let sym_id = sym.id;
+        sym.wired_to_name = Some(target);
+        sym_id
+    };
 
-    let mut instr = Instruction::new(ConstructId::Inv);
-    instr.set_field(1, prim_sym.id);
+    let mut instr = instr_at_depth(state, ConstructId::Inv);
+    instr.set_field(1, target_id);
     let pkg = get_current_package_mut(tree, state);
     pkg.add_instruction(instr);
 
@@ -718,16 +914,24 @@ fn parse_val(
     }
 
     let mut idx = 1;
-    if tokens[idx].starts_with('(') {
-        idx += 1;
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    idx = next_idx;
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "val requires a value".to_string(),
+        });
     }
-
     let value_str = tokens[idx..].join(" ");
-    let value = parse_value_literal(tree, &value_str, line_num)?;
+    let value = parse_value_literal(tree, state, &value_str, line_num)?;
 
-    let mut instr = Instruction::new(ConstructId::Val);
+    let mut instr = instr_at_depth(state, ConstructId::Val);
     instr.set_field(1, value.format as u32);
     instr.set_field(2, value.content);
+    if let Some(marker) = type_marker {
+        instr.type_marker = Some(tree.intern_string(marker));
+    }
     let pkg = get_current_package_mut(tree, state);
     pkg.add_instruction(instr);
 
@@ -761,7 +965,7 @@ fn parse_instance(
     let sym = pkg.symbols.get_by_name_mut(&name).unwrap();
     sym.symbol_type = SymbolType::Instance;
 
-    let mut instr = Instruction::new(ConstructId::Instance);
+    let mut instr = instr_at_depth(state, ConstructId::Instance);
     instr.set_field(1, sym.id);
     pkg.add_instruction(instr);
 
@@ -795,7 +999,7 @@ fn parse_property(
     let sym = pkg.symbols.get_by_name_mut(&name).unwrap();
     sym.symbol_type = SymbolType::Property;
 
-    let mut instr = Instruction::new(ConstructId::Property);
+    let mut instr = instr_at_depth(state, ConstructId::Property);
     instr.set_field(1, sym.id);
     pkg.add_instruction(instr);
 
@@ -825,14 +1029,14 @@ fn parse_propertyvalue(
     let value_str = if tokens.len() > 4 { tokens[4..].join(" ") } else { String::new() };
 
     // Parse value first (needs &mut tree)
-    let value = parse_value_literal(tree, &value_str, line_num)?;
+    let value = parse_value_literal(tree, state, &value_str, line_num)?;
 
     // Now resolve symbols and create instruction
     let pkg = get_current_package_mut(tree, state);
     let owner_id = resolve_or_create_symbol(pkg, &owner, SymbolType::Instance);
     let prop_id = resolve_or_create_symbol(pkg, &property, SymbolType::Property);
 
-    let mut instr = Instruction::new(ConstructId::Propertyvalue);
+    let mut instr = instr_at_depth(state, ConstructId::Propertyvalue);
     instr.set_field(1, owner_id);
     instr.set_field(2, prop_id);
     instr.set_field(3, value.format as u32);
@@ -855,7 +1059,7 @@ fn parse_permission(
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let pkg = get_current_package_mut(tree, state);
-    pkg.add_instruction(Instruction::new(ConstructId::Permission));
+    pkg.add_instruction(instr_at_depth(state, ConstructId::Permission));
     Ok(())
 }
 
@@ -880,7 +1084,7 @@ fn parse_pragma(
     };
 
     let pkg = get_current_package_mut(tree, state);
-    let mut instr = Instruction::new(ConstructId::Pragma);
+    let mut instr = instr_at_depth(state, ConstructId::Pragma);
     if let Some(tid) = target_id {
         instr.set_field(1, tid);
     }
@@ -901,7 +1105,7 @@ fn parse_insert(
     _line_num: usize,
 ) -> Result<(), TextualError> {
     let pkg = get_current_package_mut(tree, state);
-    pkg.add_instruction(Instruction::new(ConstructId::Insert));
+    pkg.add_instruction(instr_at_depth(state, ConstructId::Insert));
     Ok(())
 }
 
@@ -1015,11 +1219,18 @@ fn add_instruction(
     })?;
 
     let pkg = get_current_package_mut(tree, state);
-    pkg.add_instruction(Instruction::new(construct));
+    pkg.add_instruction(instr_at_depth(state, construct));
     Ok(())
 }
 
 // --- Helpers ---
+
+/// Create an instruction with the current nesting depth from the parse state.
+fn instr_at_depth(state: &ReadState, construct: ConstructId) -> Instruction {
+    let mut instr = Instruction::new(construct);
+    instr.depth = state.current_instr_depth;
+    instr
+}
 
 /// Navigate to the current package based on the parse state's path stack.
 ///
@@ -1029,7 +1240,6 @@ fn add_instruction(
 ///
 /// Panics if the path doesn't match the tree structure — this indicates
 /// a bug in the parser's state management.
-
 fn get_current_package_mut<'a>(tree: &'a mut InterTree, state: &ReadState) -> &'a mut Package {
     let mut current = &mut tree.root;
     for name in &state.current_path {
@@ -1071,6 +1281,7 @@ fn resolve_or_create_symbol(pkg: &mut Package, name: &str, stype: SymbolType) ->
 /// Strings are automatically interned in the tree's warehouse.
 fn parse_value_literal(
     tree: &mut InterTree,
+    state: &mut ReadState,
     s: &str,
     line_num: usize,
 ) -> Result<InterValue, TextualError> {
@@ -1161,15 +1372,31 @@ fn parse_value_literal(
         return Ok(InterValue::signed_number(n));
     }
 
+    // List literal: { ... }
+    if s.starts_with('{') {
+        let id = tree.intern_string(s);
+        return Ok(InterValue::list(id));
+    }
+
+    // Struct literal: struct{ ... }
+    if s.starts_with("struct{") {
+        let id = tree.intern_string(s);
+        return Ok(InterValue::struct_lit(id));
+    }
+
     // Unsigned decimal
     if let Ok(n) = s.parse::<u32>() {
         return Ok(InterValue::number(n));
     }
 
-    // Symbol reference (identifier or URL)
-    // For now, store as a string reference
-    let id = tree.intern_string(s);
-    Ok(InterValue::symbolic(id))
+    // Symbol reference (identifier or URL). Create a wiring symbol in the
+    // current package so that forward references can be resolved in a second
+    // pass. The wiring symbol is synthetic and won't be emitted on its own.
+    let pkg = get_current_package_mut(tree, state);
+    let sym = pkg.symbols.create_symbol(&format!("__sym_ref_{}", pkg.symbols.symbols.len()));
+    let sym_id = sym.id;
+    sym.wired_to_name = Some(s.to_string());
+    Ok(InterValue::symbolic(sym_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -1188,7 +1415,6 @@ fn parse_value_literal(
 /// 1. [`collect_resolutions`] walks the tree immutably to find all
 ///    symbols that need resolution
 /// 2. [`apply_resolutions`] walks the tree mutably to apply the fixes
-
 fn resolve_forward_references(tree: &mut InterTree) -> Result<(), TextualError> {
     // Collect all resolutions needed, then apply them
     let resolutions = collect_resolutions(&tree.root, &[]);
@@ -1275,6 +1501,115 @@ fn find_symbol_by_url(tree: &InterTree, url: &str) -> Option<(u32, u32)> {
     current.symbols.get_by_name(symbol_name).map(|s| (s.id, current.symbols.resource_id))
 }
 
+/// Resolve a symbol ID to its display name, handling URL references.
+/// If the symbol is wired to another symbol in a different package,
+/// returns the URL of the target. If the target is in the same package
+/// (or the global scope), returns just the target's name.
+fn resolve_symbol_name(tree: &InterTree, pkg: &Package, id: u32) -> String {
+    // First check the current package's symbols
+    if let Some(sym) = pkg.symbols.get(id) {
+        if let Some(ref target) = sym.wired_to {
+            // Same package — use bare name
+            if target.table_id == pkg.symbols.resource_id {
+                if let Some(target_sym) = pkg.symbols.get(target.symbol_id) {
+                    return target_sym.name.clone();
+                }
+            }
+            // Global scope — use bare name
+            if target.table_id == tree.global_scope.resource_id {
+                if let Some(target_sym) = tree.global_scope.get(target.symbol_id) {
+                    return target_sym.name.clone();
+                }
+            }
+            // Cross-package — construct URL
+            if let Some(target_sym) = find_symbol_in_tree(tree, target.table_id, target.symbol_id) {
+                return format!("/{}/{}", find_package_path(tree, target.table_id), target_sym.name);
+            }
+        }
+        return sym.name.clone();
+    }
+    // Check the global scope
+    if let Some(sym) = tree.global_scope.get(id) {
+        return sym.name.clone();
+    }
+    "?".to_string()
+}
+
+/// Find a symbol by table ID and symbol ID anywhere in the tree.
+fn find_symbol_in_tree(tree: &InterTree, table_id: u32, symbol_id: u32) -> Option<&Symbol> {
+    if table_id == tree.global_scope.resource_id {
+        return tree.global_scope.get(symbol_id);
+    }
+    find_symbol_in_package(&tree.root, table_id, symbol_id)
+}
+
+/// Find a symbol in a package or its children.
+fn find_symbol_in_package(pkg: &Package, table_id: u32, symbol_id: u32) -> Option<&Symbol> {
+    if pkg.symbols.resource_id == table_id {
+        return pkg.symbols.get(symbol_id);
+    }
+    for name in &pkg.child_order {
+        if let Some(child) = pkg.children.get(name) {
+            if let Some(sym) = find_symbol_in_package(child, table_id, symbol_id) {
+                return Some(sym);
+            }
+        }
+    }
+    None
+}
+
+/// Find the URL path for a symbols table by its resource ID.
+fn find_package_path(tree: &InterTree, table_id: u32) -> String {
+    find_package_path_internal(&tree.root, table_id, Vec::new())
+        .map(|parts| parts.join("/"))
+        .unwrap_or_default()
+}
+
+fn find_package_path_internal(pkg: &Package, table_id: u32, mut path: Vec<String>) -> Option<Vec<String>> {
+    if pkg.symbols.resource_id == table_id {
+        return Some(path);
+    }
+    for name in &pkg.child_order {
+        if let Some(child) = pkg.children.get(name) {
+            path.push(name.clone());
+            if let Some(result) = find_package_path_internal(child, table_id, path.clone()) {
+                return Some(result);
+            }
+            path.pop();
+        }
+    }
+    None
+}
+
+/// Render an optional type marker as it appears in textual Inter.
+///
+/// If the instruction has a type marker, returns `"(<marker>) "`,
+/// otherwise returns an empty string.
+fn type_marker_str(tree: &InterTree, instr: &Instruction) -> String {
+    instr.type_marker
+        .and_then(|id| tree.get_string(id))
+        .map(|m| format!("({}) ", m))
+        .unwrap_or_default()
+}
+
+/// Parse an optional parenthesised type marker from a token sequence.
+///
+/// If `tokens[idx]` starts with `(`, returns the marker text (with the
+/// outer parentheses removed) and the index of the next token.
+/// Otherwise returns `None` and the original index.
+fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<&'a str>, usize) {
+    if idx < tokens.len() && tokens[idx].starts_with('(') {
+        let mut s = tokens[idx];
+        if s.ends_with(')') {
+            s = &s[1..s.len() - 1];
+        }
+        idx += 1;
+        (Some(s), idx)
+    } else {
+        (None, idx)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
@@ -1297,19 +1632,27 @@ pub fn write(tree: &InterTree) -> String {
 ///
 /// Instructions are written first, then child packages in insertion order.
 /// Each level of nesting adds one tab of indentation.
+///
+/// Instruction nesting is tracked: `code` and `inv` instructions increase
+/// the depth for their children (subsequent instructions at higher indentation
+/// in the textual format).
 fn write_package(tree: &InterTree, pkg: &Package, depth: usize, out: &mut String) {
     let indent = "\t".repeat(depth);
 
     // Write instructions
     for instr in &pkg.instructions {
-        write_instruction(tree, pkg, instr, depth, out);
+        write_instruction(tree, pkg, instr, depth + instr.depth, out);
     }
 
     // Write child packages
     for name in &pkg.child_order {
         if let Some(child) = pkg.children.get(name) {
             let type_str = child.package_type.keyword();
-            out.push_str(&format!("{}package {} {}\n", indent, child.name, type_str));
+            let marker = child.type_marker
+                .and_then(|id| tree.get_string(id))
+                .map(|m| format!("({}) ", m))
+                .unwrap_or_default();
+            out.push_str(&format!("{}package {}{} {}\n", indent, marker, child.name, type_str));
             write_package(tree, child, depth + 1, out);
         }
     }
@@ -1338,13 +1681,14 @@ fn write_instruction(
             let fmt = ValueFormat::from_u32(instr.field(2).unwrap_or(0));
             let content = instr.field(3).unwrap_or(0);
             let sym_name = pkg.symbols.get(sym_id).map(|s| s.name.as_str()).unwrap_or("?");
+            let marker = type_marker_str(tree, instr);
             if let Some(fmt) = fmt {
                 let val = InterValue { format: fmt, content };
                 let val_str = val.to_text(
                     &|id| tree.get_string(id).unwrap_or("?").to_string(),
-                    &|id| pkg.symbols.get(id).map(|s| s.name.as_str()).unwrap_or("?").to_string(),
+                    &|id| resolve_symbol_name(tree, pkg, id),
                 );
-                out.push_str(&format!("{}constant {} = {}\n", indent, sym_name, val_str));
+                out.push_str(&format!("{}constant {}{} = {}\n", indent, marker, sym_name, val_str));
             }
         }
         ConstructId::Typename => {
@@ -1357,6 +1701,7 @@ fn write_instruction(
         ConstructId::Variable => {
             let sym_id = instr.field(1).unwrap_or(0);
             let sym_name = pkg.symbols.get(sym_id).map(|s| s.name.as_str()).unwrap_or("?");
+            let marker = type_marker_str(tree, instr);
             if let (Some(fmt), Some(content)) = (
                 ValueFormat::from_u32(instr.field(2).unwrap_or(0)),
                 instr.field(3),
@@ -1364,11 +1709,11 @@ fn write_instruction(
                 let val = InterValue { format: fmt, content };
                 let val_str = val.to_text(
                     &|id| tree.get_string(id).unwrap_or("?").to_string(),
-                    &|id| pkg.symbols.get(id).map(|s| s.name.as_str()).unwrap_or("?").to_string(),
+                    &|id| resolve_symbol_name(tree, pkg, id),
                 );
-                out.push_str(&format!("{}variable {} = {}\n", indent, sym_name, val_str));
+                out.push_str(&format!("{}variable {}{} = {}\n", indent, marker, sym_name, val_str));
             } else {
-                out.push_str(&format!("{}variable {}\n", indent, sym_name));
+                out.push_str(&format!("{}variable {}{}\n", indent, marker, sym_name));
             }
         }
         ConstructId::Code => {
@@ -1376,9 +1721,11 @@ fn write_instruction(
         }
         ConstructId::Inv => {
             let prim_id = instr.field(1).unwrap_or(0);
-            let prim_name = tree.global_scope.get(prim_id)
-                .map(|s| s.name.as_str())
-                .unwrap_or("?");
+            let prim_name = if let Some(sym) = tree.global_scope.get(prim_id) {
+                sym.name.clone()
+            } else {
+                resolve_symbol_name(tree, pkg, prim_id)
+            };
             out.push_str(&format!("{}inv {}\n", indent, prim_name));
         }
         ConstructId::Val => {
@@ -1389,10 +1736,30 @@ fn write_instruction(
                 let val = InterValue { format: fmt, content };
                 let val_str = val.to_text(
                     &|id| tree.get_string(id).unwrap_or("?").to_string(),
-                    &|id| pkg.symbols.get(id).map(|s| s.name.as_str()).unwrap_or("?").to_string(),
+                    &|id| resolve_symbol_name(tree, pkg, id),
                 );
-                out.push_str(&format!("{}val {}\n", indent, val_str));
+                let marker = type_marker_str(tree, instr);
+                out.push_str(&format!("{}val {}{}\n", indent, marker, val_str));
             }
+        }
+        ConstructId::Lab => {
+            let sym_id = instr.field(1).unwrap_or(0);
+            let sym_name = resolve_symbol_name(tree, pkg, sym_id);
+            out.push_str(&format!("{}lab .{}\n", indent, sym_name));
+        }
+        ConstructId::Label => {
+            let sym_id = instr.field(1).unwrap_or(0);
+            let sym_name = resolve_symbol_name(tree, pkg, sym_id);
+            out.push_str(&format!("{}.{}", indent, sym_name));
+            // Labels are written without a newline here? Wait, dotted labels
+            // are standalone lines. Add newline.
+            out.push('\n');
+        }
+        ConstructId::Local => {
+            let sym_id = instr.field(1).unwrap_or(0);
+            let sym_name = pkg.symbols.get(sym_id).map(|s| s.name.as_str()).unwrap_or("?");
+            let marker = type_marker_str(tree, instr);
+            out.push_str(&format!("{}local {}{}\n", indent, marker, sym_name));
         }
         ConstructId::Instance => {
             let sym_id = instr.field(1).unwrap_or(0);
@@ -1416,7 +1783,7 @@ fn write_instruction(
                 let val = InterValue { format: fmt, content };
                 let val_str = val.to_text(
                     &|id| tree.get_string(id).unwrap_or("?").to_string(),
-                    &|id| pkg.symbols.get(id).map(|s| s.name.as_str()).unwrap_or("?").to_string(),
+                    &|id| resolve_symbol_name(tree, pkg, id),
                 );
                 out.push_str(&format!(
                     "{}propertyvalue {} {} = {}\n",

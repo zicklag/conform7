@@ -74,6 +74,12 @@ pub enum ValueFormat {
     Glob = 0x10009,
     /// Undefined value. Content is ignored (always 0).
     Undef = 0x1000A,
+    /// Textual list literal, used only in textual Inter. Content is a
+    /// warehouse ID of the raw list text (e.g., "{ 2, 3 }").
+    List = 0x20000,
+    /// Textual struct literal, used only in textual Inter. Content is a
+    /// warehouse ID of the raw struct text (e.g., "{ r\"...\", ... }").
+    Struct = 0x20001,
 }
 
 impl ValueFormat {
@@ -91,6 +97,8 @@ impl ValueFormat {
             0x10008 => Some(Self::Symbolic),
             0x10009 => Some(Self::Glob),
             0x1000A => Some(Self::Undef),
+            0x20000 => Some(Self::List),
+            0x20001 => Some(Self::Struct),
             _ => None,
         }
     }
@@ -183,6 +191,18 @@ impl InterValue {
     /// is a warehouse ID pointing to the I6 code string.
     pub fn glob(glob_id: u32) -> Self {
         Self { format: ValueFormat::Glob, content: glob_id }
+    }
+
+    /// A list literal. The content is a warehouse ID of the raw list text.
+    /// This format is used only for textual Inter round-tripping.
+    pub fn list(list_id: u32) -> Self {
+        Self { format: ValueFormat::List, content: list_id }
+    }
+
+    /// A struct literal. The content is a warehouse ID of the raw struct text.
+    /// This format is used only for textual Inter round-tripping.
+    pub fn struct_lit(struct_id: u32) -> Self {
+        Self { format: ValueFormat::Struct, content: struct_id }
     }
 
     /// An undefined value. Used as a placeholder or "null" sentinel.
@@ -287,6 +307,12 @@ impl InterValue {
             ValueFormat::Glob => {
                 let s = strings(self.content);
                 format!("glob\"{}\"", escape_text(&s))
+            }
+            ValueFormat::List => {
+                strings(self.content) // raw list literal, e.g. "{ 2, 3 }"
+            }
+            ValueFormat::Struct => {
+                strings(self.content) // raw struct literal, e.g. "struct{ ... }"
             }
             ValueFormat::Undef => "!undef".to_string(),
         }

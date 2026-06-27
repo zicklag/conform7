@@ -1,6 +1,6 @@
 # Plan 1: Inter Binary Format Reader/Writer
 
-**Status**: In Progress
+**Status**: Textual Inter complete; binary reader still in progress
 **Started**: 2026-06-27
 **Target**: 1-2 weeks
 
@@ -14,133 +14,40 @@ This is the compatibility linchpin: the Inter format is the handoff between
 our Rust compiler and the existing C toolchain. If we can't produce
 byte-identical Inter, nothing else matters.
 
-## Why This First
+## Progress
 
-- **Testable in complete isolation.** No parser, no world model, no Salsa.
-  Just construct Inter trees in memory and write them out.
-- **The existing `inter` tool is our oracle.** We can verify correctness by
-  round-tripping through it.
-- **Unlocks all future testing.** Once this works, every subsequent piece
-  (parser, world model, etc.) can be tested by comparing its Inter output to
-  what `inform7` produces for the same input.
+### Completed
 
-## Deliverables
+- [x] In-memory Inter tree (`tree.rs`) with packages, symbols, instructions,
+      values, and types.
+- [x] Globally unique symbol IDs across all symbols tables, avoiding
+      cross-table ID collisions when resolving instruction references.
+- [x] Textual Inter reader (`textual.rs`) supporting:
+  - packages, constants, variables, locals, typenames
+  - primitives, `inv`, `val`, `code`, `lab`, `label`
+  - type markers: `constant (K_number) C_x = 1`, `val (int32) 17`,
+    `package (K_func) R_101 _code`, `local (int32) argument`
+  - function invocations via URL: `inv /main/OtherFunction`
+  - forward references and cross-package URL wiring
+  - list literals: `{ 2, 3, ... }`
+  - struct literals: `struct{ ... }`
+  - plugs, sockets, pragmas, inserts, property/value/permission
+- [x] Textual Inter writer that preserves indentation depth for nested
+      instructions and re-emits type markers, list/struct literals, and
+      wired symbol references.
+- [x] Cross-validation with the official `inter` tool for all fixtures
+      except `misc.intert`.
+- [x] Round-trip tests for all bundled `.intert` fixtures.
+- [x] Binary Inter writer and basic binary round-trip for a simple tree.
 
-### Crate: `conform7-inter`
+### Remaining
 
-```
-crates/conform7-inter/
-├── Cargo.toml
-├── src/
-│   ├── lib.rs           # Public API, re-exports
-│   ├── tree.rs          # InterTree, InterPackage, InterNode
-│   ├── symbol.rs        # Symbol tables, interning
-│   ├── instruction.rs   # Instruction constructors and types
-│   │                    # (CONSTANT_IST, VAL_IST, INV_IST, PACKAGE_IST, etc.)
-│   ├── value.rs         # Inter value pairs (two-word values)
-│   ├── types.rs         # Inter type system (int32, int16, text, enum, struct, ...)
-│   ├── binary.rs        # Binary .interb reader and writer
-│   └── textual.rs       # Textual .intert reader and writer
-└── tests/
-    ├── roundtrip.rs     # Read .intert → write .interb → read back → assert match
-    ├── hello.rs         # Construct Hello.intert programmatically, verify output
-    └── fixtures/        # Test fixtures copied from inter/Tests/
-        ├── hello.intert
-        ├── packages.intert
-        ├── misc.intert
-        └── ...
-```
-
-### Capabilities
-
-1. **In-memory Inter tree** — data structures for packages, symbols,
-   instructions, values, and types
-2. **Textual Inter reader** — parse `.intert` files into the in-memory tree
-3. **Textual Inter writer** — write the in-memory tree as `.intert` text
-4. **Binary Inter reader** — parse `.interb` files into the in-memory tree
-5. **Binary Inter writer** — write the in-memory tree as `.interb` binary
-6. **Round-trip fidelity** — read → write → read produces identical trees;
-   textual → binary → textual produces identical text
-
-## Test Strategy
-
-### Test 1: Programmatic Construction
-
-Construct the Hello World Inter tree in Rust and write it as textual Inter.
-Verify the output matches the expected text (modulo auto-inserted
-`packagetype`/`primitive` declarations).
-
-```rust
-#[test]
-fn construct_hello_world() {
-    let mut tree = InterTree::new();
-    let main = tree.root().add_package("main", PackageType::Plain);
-    let main_fn = main.add_package("Main", PackageType::Code);
-    main_fn.add_code(|b| {
-        b.inv_primitive("!enableprinting");
-        b.inv_primitive("!print").val_text("Hello, world.\n");
-    });
-
-    let text = tree.to_text();
-    // The inter tool auto-inserts packagetype/primitive declarations
-    assert!(text.contains("package main _plain"));
-    assert!(text.contains("package Main _code"));
-    assert!(text.contains("inv !enableprinting"));
-    assert!(text.contains(r#"val "Hello, world.\n""#));
-}
-```
-
-### Test 2: Textual Round-Trip
-
-Read every `.intert` file from `inter/Tests/Valid/` and `inter/Tests/Toys/`,
-write it back as text, and assert the output matches the input.
-
-### Test 3: Binary Round-Trip
-
-Read a textual Inter file, write it as binary, use the existing `inter` tool
-to convert the binary back to text, and assert the text matches the original.
-
-```rust
-#[test]
-fn binary_roundtrip_hello() {
-    let input = include_str!("fixtures/hello.intert");
-    let tree = InterTree::from_text(input).unwrap();
-    let binary = tree.to_binary().unwrap();
-
-    // Write binary to temp file
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(tmp.path(), &binary).unwrap();
-
-    // Use inter tool to convert back to text
-    let output = std::process::Command::new("inter/Tangled/inter")
-        .arg(tmp.path())
-        .arg("-format=text")
-        .output()
-        .unwrap();
-
-    let roundtripped = String::from_utf8(output.stdout).unwrap();
-    // Compare (accounting for auto-inserted declarations)
-    assert_inter_text_eq(input, &roundtripped);
-}
-```
-
-### Test 4: Cross-Validation with inform7
-
-For a simple I7 program, compile with `inform7` to get the expected Inter,
-then construct the same Inter tree programmatically in Rust and assert
-byte-identical binary output.
-
-## Reference Material
-
-- `gitignore/inform/inter/bytecode-module/` — Inter tree data structures,
-  binary format, textual format
-- `gitignore/inform/inter/building-module/` — Inter construction middleware
-  (primitives, package types, conventions)
-- `gitignore/inform/inter/Tests/Valid/` — Valid textual Inter test files
-- `gitignore/inform/inter/Tests/Toys/` — Toy Inter programs with expected
-  outputs
-- [Inter Bytecode Module Docs](https://ganelson.github.io/inform/bytecode-module/P-wtmd.html)
-- [Inter Building Module Docs](https://ganelson.github.io/inform/building-module/P-wtmd.html)
+- [ ] Complete binary Inter reader to reconstruct real `.interb` files from
+      the official kits (EnglishLanguageKit, etc.).
+- [ ] Un-ignore the 7 currently ignored binary compatibility tests.
+- [ ] Run against the full `inter/Tests/Valid/` and `inter/Tests/Toys/`
+      suites and fix any textual constructs we still mishandle.
+- [ ] Byte-for-byte binary fidelity against the reference implementation.
 
 ## Key Design Decisions
 
@@ -155,19 +62,47 @@ byte-identical binary output.
    differs from what `inter` expects, we fix our code, not the other way
    around.
 
-4. **No Salsa yet.** This crate is a pure data library with no incremental
+4. **Symbol IDs are globally unique in our in-memory tree.** The C
+   implementation gives each symbols table its own counter starting at
+   `SYMBOL_BASE`, so the same raw ID can mean different symbols in different
+   tables. We share a single tree-wide counter so that instruction fields
+   can be resolved without first knowing which table they came from. This
+   is a pragmatic departure from the C layout; we will normalize IDs back
+   to per-table values when writing binary Inter.
+
+5. **No Salsa yet.** This crate is a pure data library with no incremental
    computation needs. Salsa comes in when we build the compiler driver.
+
+## Test Strategy
+
+### Unit tests
+- Core data structures (tree, symbols, values, instructions, types).
+
+### Integration tests
+
+- `roundtrip_tests.rs` — read every bundled `.intert` fixture, write it
+  back, and parse the result; assert the final tree matches the first.
+
+- `inter_compat_tests.rs` — feed our re-serialized text to the official
+  `inter` tool and verify it parses without errors. This is the strongest
+  practical oracle we have without building the C toolchain.
+
+- `binary_compat_tests.rs` — verify our binary writer produces output that
+  `inter` can read, and (eventually) that our binary reader can load real
+  kit files.
 
 ## Success Criteria
 
-- [ ] All `.intert` files from `inter/Tests/Valid/` round-trip through our
-      textual reader/writer with identical output
-- [ ] All `.intert` files from `inter/Tests/Toys/` round-trip through our
-      textual reader/writer with identical output
-- [ ] Binary output from our writer is accepted by the existing `inter` tool
-- [ ] Binary → text round-trip through `inter` tool produces identical text
-- [ ] Programmatic construction of Hello World produces correct output
-- [ ] All tests pass on CI
+- [x] All bundled `.intert` fixtures round-trip through our textual
+      reader/writer with identical output.
+- [x] All bundled `.intert` fixtures (except `misc.intert`) are accepted by
+      the existing `inter` tool after re-serialization.
+- [x] Programmatic construction of Hello World produces correct output.
+- [ ] All `.intert` files from `inter/Tests/Valid/` round-trip correctly.
+- [ ] All `.intert` files from `inter/Tests/Toys/` round-trip correctly.
+- [ ] Binary output from our writer is accepted by the existing `inter` tool.
+- [ ] Binary → text round-trip through `inter` produces identical text.
+- [ ] All tests pass on CI.
 
 ## Out of Scope
 

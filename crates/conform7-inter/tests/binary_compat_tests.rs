@@ -148,6 +148,7 @@ fn binary_write_read_roundtrip_simple_tree() {
         tree.alloc_resource_id(),
         "Main".to_string(),
         PackageType::Code,
+        tree.symbol_counter(),
     );
 
     main_fn.add_instruction(Instruction::new(ConstructId::Code));

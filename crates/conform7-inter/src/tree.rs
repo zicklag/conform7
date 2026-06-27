@@ -47,7 +47,9 @@
 //! Circular wirings are forbidden.
 
 use crate::instruction::Instruction;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
 // Symbol
@@ -221,9 +223,9 @@ pub struct SymbolsTable {
     /// Symbols by name. Used for textual Inter parsing and name lookup.
     pub by_name: HashMap<String, u32>,
 
-    /// Next available symbol ID. Starts at `SYMBOL_BASE` and increments
-    /// with each call to `create_symbol`.
-    next_id: u32,
+    /// Next available symbol ID. All tables share a single counter so that
+    /// symbol IDs are globally unique across the tree.
+    counter: Rc<Cell<u32>>,
 }
 
 impl SymbolsTable {
@@ -236,12 +238,16 @@ impl SymbolsTable {
     pub const SYMBOL_BASE: u32 = 0x40000000;
 
     /// Create a new, empty symbols table with the given warehouse resource ID.
-    pub fn new(resource_id: u32) -> Self {
+    ///
+    /// The `counter` is a shared cell holding the next symbol ID to assign.
+    /// All tables in a tree share the same counter so that symbol IDs are
+    /// globally unique.
+    pub fn new(resource_id: u32, counter: Rc<Cell<u32>>) -> Self {
         Self {
             resource_id,
             symbols: HashMap::new(),
             by_name: HashMap::new(),
-            next_id: Self::SYMBOL_BASE,
+            counter,
         }
     }
 
@@ -250,8 +256,8 @@ impl SymbolsTable {
     /// Returns a mutable reference to the newly created symbol. The symbol
     /// starts with type [`SymbolType::Misc`].
     pub fn create_symbol(&mut self, name: &str) -> &mut Symbol {
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = self.counter.get();
+        self.counter.set(id + 1);
         let sym = Symbol::new(id, name.to_string());
         self.symbols.insert(id, sym);
         self.by_name.insert(name.to_string(), id);
@@ -264,13 +270,19 @@ impl SymbolsTable {
     /// assigned by the original compiler and must be preserved for correct
     /// wiring references.
     pub fn create_symbol_at_id(&mut self, name: &str, id: u32) -> &mut Symbol {
-        if id >= self.next_id {
-            self.next_id = id + 1;
+        let current = self.counter.get();
+        if id >= current {
+            self.counter.set(id + 1);
         }
         let sym = Symbol::new(id, name.to_string());
         self.symbols.insert(id, sym);
         self.by_name.insert(name.to_string(), id);
         self.symbols.get_mut(&id).unwrap()
+    }
+
+    /// Return the next symbol ID that would be assigned.
+    pub fn next_id(&self) -> u32 {
+        self.counter.get()
     }
 
     /// Look up a symbol by ID. Returns `None` if not found.
@@ -403,6 +415,11 @@ pub struct Package {
     /// The package type, which determines what can appear inside.
     pub package_type: PackageType,
 
+    /// Optional type marker (kind) written before the package name in
+    /// textual Inter. For example, `package (K_func) R_101 _code` has
+    /// type marker `K_func`.
+    pub type_marker: Option<u32>,
+
     /// The symbols table for this package. All named entities defined
     /// by instructions in this package are recorded here.
     pub symbols: SymbolsTable,
@@ -426,14 +443,21 @@ impl Package {
     /// Create a new package.
     ///
     /// The symbols table is automatically created with a resource ID of
-    /// `resource_id + 1`. This matches the C implementation's convention
-    /// where the symbols table is a separate warehouse resource.
-    pub fn new(resource_id: u32, name: String, package_type: PackageType) -> Self {
+    /// `resource_id + 1`. The `symbol_counter` is the shared tree-wide
+    /// counter, ensuring symbol IDs are globally unique.
+    pub fn new(
+        resource_id: u32,
+        name: String,
+        package_type: PackageType,
+        symbol_counter: Rc<Cell<u32>>,
+    ) -> Self {
+        let symbols = SymbolsTable::new(resource_id + 1, symbol_counter);
         Self {
             resource_id,
             name,
             package_type,
-            symbols: SymbolsTable::new(resource_id + 1),
+            type_marker: None,
+            symbols,
             instructions: Vec::new(),
             children: HashMap::new(),
             child_order: Vec::new(),
@@ -512,6 +536,10 @@ pub struct InterTree {
     /// by its warehouse ID.
     pub strings: HashMap<u32, String>,
 
+    /// Shared counter for globally unique symbol IDs. All symbols tables
+    /// hold a clone of this counter, so IDs never overlap between tables.
+    next_symbol_id: Rc<Cell<u32>>,
+
     /// Next available warehouse resource ID. Increments monotonically.
     /// Resource IDs 0 and 1 are reserved for the global scope and root
     /// package respectively.
@@ -528,26 +556,43 @@ impl InterTree {
     /// Initializes the global scope (resource 0), root package (resource 1),
     /// and sets the next resource ID to 2. The version defaults to 1.0.0.
     pub fn new() -> Self {
-        let global = SymbolsTable::new(0);
-        let root = Package::new(1, String::new(), PackageType::Plain);
+        let symbol_counter = Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE));
+        let global = SymbolsTable::new(0, symbol_counter.clone());
+        let root = Package::new(1, String::new(), PackageType::Plain, symbol_counter.clone());
         Self {
             root,
             global_scope: global,
             strings: HashMap::new(),
             next_resource_id: 2,
+            next_symbol_id: symbol_counter,
             version: (1, 0, 0),
         }
     }
 
     /// Allocate a new warehouse resource ID.
-    ///
-    /// Resource IDs are used to identify strings, symbols tables, packages,
-    /// and node lists in the binary Inter format. They must be unique within
-    /// a tree.
     pub fn alloc_resource_id(&mut self) -> u32 {
         let id = self.next_resource_id;
         self.next_resource_id += 1;
         id
+    }
+
+    /// Allocate a new symbol ID.
+    ///
+    /// Symbol IDs are shared across all symbols tables in the tree to ensure
+    /// that a raw ID uniquely identifies a symbol even without knowing which
+    /// table it belongs to.
+    pub fn alloc_symbol_id(&self) -> u32 {
+        let id = self.next_symbol_id.get();
+        self.next_symbol_id.set(id + 1);
+        id
+    }
+
+    /// Return a clone of the shared symbol ID counter.
+    ///
+    /// Used when creating a new package, which needs its own symbols table
+    /// that continues sharing the tree-wide counter.
+    pub fn symbol_counter(&self) -> Rc<Cell<u32>> {
+        self.next_symbol_id.clone()
     }
 
     /// Store a string in the warehouse and return its resource ID.
@@ -581,6 +626,7 @@ impl InterTree {
                 self.alloc_resource_id(),
                 "main".to_string(),
                 PackageType::Plain,
+                self.next_symbol_id.clone(),
             );
             self.root.add_child(main);
         }
@@ -643,7 +689,8 @@ mod tests {
 
     #[test]
     fn test_symbols_table() {
-        let mut table = SymbolsTable::new(0);
+        let counter = Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE));
+        let mut table = SymbolsTable::new(0, counter);
         let sym_id = {
             let sym = table.create_symbol("hello");
             assert_eq!(sym.name, "hello");

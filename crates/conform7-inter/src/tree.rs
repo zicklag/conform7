@@ -515,7 +515,7 @@ pub struct InterTree {
     /// Next available warehouse resource ID. Increments monotonically.
     /// Resource IDs 0 and 1 are reserved for the global scope and root
     /// package respectively.
-    next_resource_id: u32,
+    pub next_resource_id: u32,
 
     /// The Inter specification version (major, minor, patch).
     /// Written to binary Inter file headers for compatibility checking.

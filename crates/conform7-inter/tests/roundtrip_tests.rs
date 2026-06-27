@@ -37,10 +37,7 @@ fn assert_trees_equivalent(original: &str, roundtripped: &str, name: &str) {
 }
 
 fn count_packages(pkg: &conform7_inter::Package) -> usize {
-    1 + pkg.child_order.iter()
-        .filter_map(|name| pkg.children.get(name))
-        .map(count_packages)
-        .sum::<usize>()
+    1 + pkg.children_iter().map(count_packages).sum::<usize>()
 }
 
 /// Assert that the written output matches the original input exactly.
@@ -115,7 +112,7 @@ mod structural {
 
         let main = tree2.find_package("/main").unwrap();
         let main_fn = main.get_child("Main").unwrap();
-        assert_eq!(main_fn.instructions.len(), 4);
+        assert_eq!(main_fn.instructions().count(), 4);
     }
 
     #[test]

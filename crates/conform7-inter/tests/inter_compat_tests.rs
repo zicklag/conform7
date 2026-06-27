@@ -83,16 +83,17 @@ fn inter_roundtrip_matches_our_parse() {
 #[test]
 fn inter_roundtrip_all_fixtures() {
     let fixtures = [
-        // Fixtures excluded due to interleaving: our writer outputs all
-        // instructions before all child packages, but the original text
-        // may interleave them. This is a known limitation.
-        // Affected: nesting, linkage, externing, typedfunction, and misc.
         "Hello.intert",
         "packages.intert",
         "list.intert",
         "labelling.intert",
         "predec.intert",
         "typedstruct.intert",
+        "nesting.intert",
+        "linkage.intert",
+        "externing.intert",
+        "typedfunction.intert",
+        "misc.intert",
     ];
 
     let fixture_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");

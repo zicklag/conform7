@@ -1,7 +1,7 @@
 # NOW — Lossless Inter Tree Refactor
 
-**Status**: In planning — foundation refactor before further feature work
-**Started**: 2026-06-27
+**Status**: Complete — all success criteria met
+**Completed**: 2026-06-27
 
 ## Why we are here
 
@@ -197,19 +197,19 @@ references instead of silently leaving `wired_to_name` set.
 
 ## Success criteria
 
-- [ ] `tree.rs` stores package contents as a single ordered sequence that can
+- [x] `tree.rs` stores package contents as a single ordered sequence that can
       represent instruction/child-package interleaving.
-- [ ] `textual::write` iterates that sequence in order.
-- [ ] `textual::read` populates that sequence in order.
-- [ ] `propertyvalue`, `permission`, and `pragma` are parsed with full
+- [x] `textual::write` iterates that sequence in order.
+- [x] `textual::read` populates that sequence in order.
+- [x] `propertyvalue`, `permission`, and `pragma` are parsed with full
       arguments preserved.
-- [ ] Multi-token type markers are parsed correctly.
-- [ ] Every fixture round-trips structurally.
-- [ ] Every fixture that does not depend on unimplemented features passes
+- [x] Multi-token type markers are parsed correctly.
+- [x] Every fixture round-trips structurally.
+- [x] Every fixture that does not depend on unimplemented features passes
       byte-identical output comparison (modulo whitespace normalization).
-- [ ] `misc.intert` is accepted by the official `inter` tool after
+- [x] `misc.intert` is accepted by the official `inter` tool after
       re-serialization.
-- [ ] `cargo test` and `cargo clippy --all-targets` are clean.
+- [x] `cargo test` and `cargo clippy --all-targets` are clean.
 
 ## Out of scope for this refactor
 

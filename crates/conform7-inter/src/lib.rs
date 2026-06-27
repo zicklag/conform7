@@ -51,9 +51,9 @@
 //! 3. Write the tree as textual Inter via [`textual::write`]
 //! 4. Hand off the `.intert` file to the existing `inter` tool for linking and codegen
 //!
-//! For testing, we also read Inter files back via [`textual::read`] and
-//! [`binary::read`] to verify round-trip fidelity against the reference
-//! `inform7` compiler output.
+//! For testing, we also read Inter files back via [`textual::read`] to verify
+//! round-trip fidelity against the reference `inform7` compiler output.
+
 
 pub mod instruction;
 pub mod textual;

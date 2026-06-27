@@ -48,7 +48,7 @@
 //! (modulo auto-inserted declarations like `packagetype` and `primitive`).
 
 use crate::instruction::{ConstructId, Instruction};
-use crate::tree::{InterTree, Package, PackageType, Symbol, SymbolType, WiringTarget};
+use crate::tree::{InterTree, Package, PackageItem, PackageType, Symbol, SymbolType, WiringTarget};
 use crate::value::{unescape_text, InterValue, ValueFormat};
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,16 @@ fn parse_line(
     let (content, _annotations) = split_annotations(trimmed);
 
     if content.is_empty() || content.starts_with('#') {
-        // Comment line (either empty or starting with #)
+        // Comment line — store as a Comment instruction for round-trip fidelity
+        let mut instr = instr_at_depth(state, ConstructId::Comment);
+        // Store the comment text (without the leading #)
+        let comment_text = content.trim_start_matches('#').trim();
+        if !comment_text.is_empty() {
+            let text_id = tree.intern_string(comment_text);
+            instr.set_field(1, text_id);
+        }
+        let pkg = get_current_package_mut(tree, state);
+        pkg.add_instruction(instr);
         return Ok(());
     }
 
@@ -264,9 +273,19 @@ fn parse_line(
         "lab" => parse_lab(tree, state, &tokens, line_num)?,
         "label" => parse_label(tree, state, &tokens, line_num)?,
         "local" => parse_local(tree, state, &tokens, line_num)?,
-        "assembly" | "cast" | "evaluation" | "ref" | "reference" | "splat" => {
+        "assembly" | "evaluation" | "ref" | "reference" => {
             // Code-level constructs — store as generic instruction
             add_instruction(tree, state, keyword, &tokens, line_num)?;
+        }
+        "cast" => {
+            // Cast has special syntax: cast <to_type> <- <from_type>
+            parse_cast(tree, state, &tokens, line_num)?;
+        }
+        "splat" => {
+            // Splat is special: its argument is a raw string that may contain
+            // embedded quotes and spaces that the tokenizer can't handle.
+            // We read the raw content after the keyword.
+            parse_splat(tree, state, content, line_num)?;
         }
         // Labels like `.begin` start with a dot — they're label definitions
         kw if kw.starts_with('.') => {
@@ -418,6 +437,20 @@ fn parse_primitive(
     }
     let sym = tree.global_scope.get_by_name_mut(name).unwrap();
     sym.symbol_type = SymbolType::Primitive;
+
+    // Store the primitive as an instruction in the root package so it
+    // is preserved during round-trip serialization.
+    let name_id = tree.intern_string(name);
+    let mut instr = Instruction::new(ConstructId::Primitive);
+    instr.set_field(1, name_id);
+    // Store the signature (if any) as a string in field 2
+    if tokens.len() > 2 {
+        let sig = tokens[2..].join(" ");
+        let sig_id = tree.intern_string(&sig);
+        instr.set_field(2, sig_id);
+    }
+    tree.root.add_instruction(instr);
+
     Ok(())
 }
 
@@ -467,7 +500,7 @@ fn parse_package(
     let resource_id = tree.alloc_resource_id();
     let mut pkg = Package::new(resource_id, name.clone(), pkg_type, tree.symbol_counter());
     if let Some(marker) = pkg_type_marker {
-        pkg.type_marker = Some(tree.intern_string(marker));
+        pkg.type_marker = Some(tree.intern_string(&marker));
     }
 
     // Create a symbol for this package in the parent's symbols table
@@ -478,6 +511,7 @@ fn parse_package(
         }
         let sym = parent.symbols.get_by_name_mut(&name).unwrap();
         sym.symbol_type = SymbolType::Package;
+        // Add the child to the parent's ordered items
         parent.add_child(pkg);
     }
 
@@ -543,7 +577,7 @@ fn parse_constant(
 
     // Intern the type marker early so we don't need to borrow tree again
     // while the current package is borrowed.
-    let marker_id = type_marker.map(|m| tree.intern_string(m));
+    let marker_id = type_marker.as_ref().map(|m| tree.intern_string(m));
 
     // Parse value first (needs &mut tree)
     let value = parse_value_literal(tree, state, &value_str, line_num)?;
@@ -601,10 +635,12 @@ fn parse_typename(
         });
     }
     let eq_idx = eq_idx.unwrap();
+    let operator = tokens[eq_idx]; // "=" or "<="
     let type_str = tokens[eq_idx + 1..].join(" ");
 
-    // Intern string first (needs &mut tree)
+    // Intern strings first (needs &mut tree)
     let type_id = tree.intern_string(&type_str);
+    let op_id = tree.intern_string(operator);
 
     // Now create symbol and instruction
     let pkg = get_current_package_mut(tree, state);
@@ -620,6 +656,7 @@ fn parse_typename(
     let mut instr = instr_at_depth(state, ConstructId::Typename);
     instr.set_field(1, sym_id);
     instr.set_field(2, type_id);
+    instr.set_field(3, op_id);
     pkg.add_instruction(instr);
 
     Ok(())
@@ -672,7 +709,7 @@ fn parse_variable(
 
     // Intern the type marker early so we don't need to borrow tree again
     // while the current package is borrowed.
-    let marker_id = type_marker.map(|m| tree.intern_string(m));
+    let marker_id = type_marker.as_ref().map(|m| tree.intern_string(m));
 
     // Parse value first if present (needs &mut tree)
     let value = if let Some(ref val_str) = value_str {
@@ -755,7 +792,7 @@ fn parse_local(
 
     // Intern the type marker early so we don't need to borrow tree again
     // while the current package is borrowed.
-    let marker_id = type_marker.map(|m| tree.intern_string(m));
+    let marker_id = type_marker.as_ref().map(|m| tree.intern_string(m));
 
     let pkg = get_current_package_mut(tree, state);
     if !pkg.symbols.has_name(&name) {
@@ -953,7 +990,7 @@ fn parse_val(
     instr.set_field(1, value.format as u32);
     instr.set_field(2, value.content);
     if let Some(marker) = type_marker {
-        instr.type_marker = Some(tree.intern_string(marker));
+        instr.type_marker = Some(tree.intern_string(&marker));
     }
     let pkg = get_current_package_mut(tree, state);
     pkg.add_instruction(instr);
@@ -993,7 +1030,7 @@ fn parse_instance(
     let name = tokens[idx].to_string();
 
     // Intern type marker early
-    let marker_id = type_marker.map(|m| tree.intern_string(m));
+    let marker_id = type_marker.as_ref().map(|m| tree.intern_string(m));
 
     // Parse optional value (= N)
     idx += 1;
@@ -1059,7 +1096,7 @@ fn parse_property(
     let name = tokens[idx].to_string();
 
     // Intern type marker early
-    let marker_id = type_marker.map(|m| tree.intern_string(m));
+    let marker_id = type_marker.as_ref().map(|m| tree.intern_string(m));
 
     let pkg = get_current_package_mut(tree, state);
     if !pkg.symbols.has_name(&name) {
@@ -1078,10 +1115,13 @@ fn parse_property(
 
 /// Parse a `propertyvalue` instruction.
 ///
-/// Example: `propertyvalue P_strength of I_citrus = 20`
+/// Examples:
+/// - `propertyvalue P_strength of I_citrus = 20`
+/// - `propertyvalue P_strength I_citrus = 20`
 ///
 /// Sets the value of a property for a specific owner (instance or kind).
-/// The owner and property are resolved as symbols in the current package.
+/// The syntax is `propertyvalue <property> [of] <owner> = <value>`.
+/// The `of` keyword is optional.
 fn parse_propertyvalue(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -1091,12 +1131,50 @@ fn parse_propertyvalue(
     if tokens.len() < 4 {
         return Err(TextualError::ParseError {
             line: line_num,
-            message: "propertyvalue requires owner, property, and value".to_string(),
+            message: "propertyvalue requires property, owner, and value".to_string(),
         });
     }
-    let owner = tokens[1].to_string();
-    let property = tokens[2].to_string();
-    let value_str = if tokens.len() > 4 { tokens[4..].join(" ") } else { String::new() };
+
+    // Syntax: propertyvalue <property> [of] <owner> = <value>
+    // tokens[0] = "propertyvalue"
+    // tokens[1] = property name
+    // tokens[2] = "of" (optional) or owner name
+    // tokens[3] = owner name (if tokens[2] was "of") or "="
+    // tokens[4] = value (if tokens[3] was "=") or "="
+    // tokens[5] = value (if tokens[4] was "=")
+
+    let property = tokens[1].to_string();
+    let mut idx = 2;
+
+    // Check for optional "of" keyword
+    if tokens[idx] == "of" {
+        idx += 1;
+    }
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "propertyvalue requires owner after property".to_string(),
+        });
+    }
+    let owner = tokens[idx].to_string();
+    idx += 1;
+
+    if idx >= tokens.len() || tokens[idx] != "=" {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "propertyvalue requires '=' before value".to_string(),
+        });
+    }
+    idx += 1;
+
+    if idx >= tokens.len() {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "propertyvalue requires a value".to_string(),
+        });
+    }
+    let value_str = tokens[idx..].join(" ");
 
     // Parse value first (needs &mut tree)
     let value = parse_value_literal(tree, state, &value_str, line_num)?;
@@ -1122,14 +1200,52 @@ fn parse_propertyvalue(
 ///
 /// Grants a kind permission to have a property. Without permission,
 /// propertyvalue assignments for that kind are invalid.
+///
+/// The syntax is `permission for <kind> to have <property>`.
 fn parse_permission(
     tree: &mut InterTree,
     state: &mut ReadState,
-    _tokens: &[&str],
-    _line_num: usize,
+    tokens: &[&str],
+    line_num: usize,
 ) -> Result<(), TextualError> {
+    if tokens.len() < 5 {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "permission requires 'for <kind> to have <property>'".to_string(),
+        });
+    }
+
+    // Syntax: permission for <kind> to have <property>
+    // tokens[0] = "permission"
+    // tokens[1] = "for"
+    // tokens[2] = kind name
+    // tokens[3] = "to"
+    // tokens[4] = "have"
+    // tokens[5] = property name
+    if tokens[1] != "for" || tokens[3] != "to" || tokens[4] != "have" {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "permission syntax: 'permission for <kind> to have <property>'".to_string(),
+        });
+    }
+
+    let kind_name = tokens[2].to_string();
+    let prop_name = if tokens.len() > 5 { tokens[5].to_string() } else {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "permission requires a property name".to_string(),
+        });
+    };
+
     let pkg = get_current_package_mut(tree, state);
-    pkg.add_instruction(instr_at_depth(state, ConstructId::Permission));
+    let kind_id = resolve_or_create_symbol(pkg, &kind_name, SymbolType::Typename);
+    let prop_id = resolve_or_create_symbol(pkg, &prop_name, SymbolType::Property);
+
+    let mut instr = instr_at_depth(state, ConstructId::Permission);
+    instr.set_field(1, kind_id);
+    instr.set_field(2, prop_id);
+    pkg.add_instruction(instr);
+
     Ok(())
 }
 
@@ -1145,18 +1261,36 @@ fn parse_pragma(
     tokens: &[&str],
     _line_num: usize,
 ) -> Result<(), TextualError> {
-    // Intern string first if needed
-    let target_id = if tokens.len() > 1 {
-        let target = tokens[1].to_string();
-        Some(tree.intern_string(&target))
+    if tokens.len() < 2 {
+        return Ok(()); // malformed pragma, just skip
+    }
+
+    let target = tokens[1].to_string();
+    let value = if tokens.len() > 2 {
+        let raw = tokens[2..].join(" ");
+        // Strip surrounding quotes if present
+        if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+            raw[1..raw.len() - 1].to_string()
+        } else {
+            raw
+        }
+    } else {
+        String::new()
+    };
+
+    // Intern strings first (needs &mut tree)
+    let target_id = tree.intern_string(&target);
+    let value_id = if !value.is_empty() {
+        Some(tree.intern_string(&value))
     } else {
         None
     };
 
     let pkg = get_current_package_mut(tree, state);
     let mut instr = instr_at_depth(state, ConstructId::Pragma);
-    if let Some(tid) = target_id {
-        instr.set_field(1, tid);
+    instr.set_field(1, target_id);
+    if let Some(vid) = value_id {
+        instr.set_field(2, vid);
     }
     pkg.add_instruction(instr);
     Ok(())
@@ -1166,6 +1300,84 @@ fn parse_pragma(
 ///
 /// Example: `insert`
 ///
+/// Parse a  (raw I6 code) instruction.
+///
+/// Example: 
+///
+/// Splat embeds raw Inform 6 code inline. The argument is a string literal
+/// that may contain embedded quotes and spaces. We read the raw content
+/// after the keyword to avoid issues with the tokenizer.
+fn parse_splat(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    line: &str,
+    line_num: usize,
+) -> Result<(), TextualError> {
+    // Find the content after 'splat' keyword
+    let content = line.trim_start();
+    let value_str = if let Some(pos) = content.find(' ') {
+        content[pos + 1..].trim().to_string()
+    } else {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "splat requires a string argument".to_string(),
+        });
+    };
+
+    // Parse as a string literal
+    let value = parse_value_literal(tree, state, &value_str, line_num)?;
+
+    let mut instr = instr_at_depth(state, ConstructId::Splat);
+    instr.set_field(1, value.format as u32);
+    instr.set_field(2, value.content);
+    let pkg = get_current_package_mut(tree, state);
+    pkg.add_instruction(instr);
+
+    Ok(())
+}
+
+/// Parse a `cast` instruction.
+///
+/// Example: `cast /main/K_number <- /main/K_colour`
+///
+/// Cast converts a value from one type to another. The `<-` is syntactic
+/// sugar in the textual format. We store both the target type and source
+/// type as interned strings.
+fn parse_cast(
+    tree: &mut InterTree,
+    state: &mut ReadState,
+    tokens: &[&str],
+    line_num: usize,
+) -> Result<(), TextualError> {
+    if tokens.len() < 4 {
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "cast requires <to_type> <- <from_type>".to_string(),
+        });
+    }
+    let to_type = tokens[1].to_string();
+    // tokens[2] should be "<-"
+    let from_type = tokens[3..].join(" ");
+
+    let to_id = tree.intern_string(&to_type);
+    let from_id = tree.intern_string(&from_type);
+
+    let mut instr = instr_at_depth(state, ConstructId::Cast);
+    instr.set_field(1, to_id);
+    instr.set_field(2, from_id);
+    let pkg = get_current_package_mut(tree, state);
+    pkg.add_instruction(instr);
+
+    Ok(())
+}
+
+/// Parse a `splat` (raw I6 code) instruction.
+///
+/// Example: `splat "Sing a song of \"six splats\"...\nand don't wait up"`
+///
+/// Splat embeds raw Inform 6 code inline. The argument is a string literal
+/// that may contain embedded quotes and spaces. We read the raw content
+/// after the keyword to avoid issues with the tokenizer.
 /// Marks a position where another package's contents will be inserted
 /// during linking. Used for the connectors mechanism.
 fn parse_insert(
@@ -1207,6 +1419,7 @@ fn parse_plug(
     }
     let sym = pkg.symbols.get_by_name_mut(&name).unwrap();
     sym.symbol_type = SymbolType::Plug;
+    let sym_id = sym.id;
 
     // plug may have `~~> target` wiring
     if tokens.len() >= 4 && tokens[2] == "~~>" {
@@ -1220,6 +1433,11 @@ fn parse_plug(
             sym.wired_to_name = Some(target);
         }
     }
+
+    // Add a plug instruction to preserve it during round-trip
+    let mut instr = instr_at_depth(state, ConstructId::Plug);
+    instr.set_field(1, sym_id);
+    pkg.add_instruction(instr);
 
     Ok(())
 }
@@ -1253,6 +1471,7 @@ fn parse_socket(
     }
     let sym = pkg.symbols.get_by_name_mut(&name).unwrap();
     sym.symbol_type = SymbolType::Socket;
+    let sym_id = sym.id;
 
     // socket may have `~~> target` wiring
     if tokens.len() >= 4 && tokens[2] == "~~>" {
@@ -1264,6 +1483,11 @@ fn parse_socket(
             sym.wired_to_name = Some(target);
         }
     }
+
+    // Add a socket instruction to preserve it during round-trip
+    let mut instr = instr_at_depth(state, ConstructId::Socket);
+    instr.set_field(1, sym_id);
+    pkg.add_instruction(instr);
 
     Ok(())
 }
@@ -1542,12 +1766,10 @@ fn collect_resolutions(pkg: &Package, path: &[String]) -> Vec<(Vec<String>, u32,
             }
         }
     }
-    for child_name in &pkg.child_order {
-        if let Some(child) = pkg.children.get(child_name) {
-            let mut child_path = path.to_vec();
-            child_path.push(child_name.clone());
-            result.extend(collect_resolutions(child, &child_path));
-        }
+    for child in pkg.children_iter() {
+        let mut child_path = path.to_vec();
+        child_path.push(child.name.clone());
+        result.extend(collect_resolutions(child, &child_path));
     }
     result
 }
@@ -1659,11 +1881,9 @@ fn find_symbol_in_package(pkg: &Package, table_id: u32, symbol_id: u32) -> Optio
     if pkg.symbols.resource_id == table_id {
         return pkg.symbols.get(symbol_id);
     }
-    for name in &pkg.child_order {
-        if let Some(child) = pkg.children.get(name) {
-            if let Some(sym) = find_symbol_in_package(child, table_id, symbol_id) {
-                return Some(sym);
-            }
+    for child in pkg.children_iter() {
+        if let Some(sym) = find_symbol_in_package(child, table_id, symbol_id) {
+            return Some(sym);
         }
     }
     None
@@ -1680,14 +1900,12 @@ fn find_package_path_internal(pkg: &Package, table_id: u32, mut path: Vec<String
     if pkg.symbols.resource_id == table_id {
         return Some(path);
     }
-    for name in &pkg.child_order {
-        if let Some(child) = pkg.children.get(name) {
-            path.push(name.clone());
-            if let Some(result) = find_package_path_internal(child, table_id, path.clone()) {
-                return Some(result);
-            }
-            path.pop();
+    for child in pkg.children_iter() {
+        path.push(child.name.clone());
+        if let Some(result) = find_package_path_internal(child, table_id, path.clone()) {
+            return Some(result);
         }
+        path.pop();
     }
     None
 }
@@ -1703,22 +1921,65 @@ fn type_marker_str(tree: &InterTree, instr: &Instruction) -> String {
         .unwrap_or_default()
 }
 
+/// Format a wiring target as a URL or bare name for textual Inter output.
+///
+/// Looks up the target symbol by table ID and symbol ID, and formats it
+/// as a URL (e.g., `/main/sub/C_gamma`) or a bare name if it's in the
+/// global scope (e.g., `!print`).
+fn format_wiring_target(tree: &InterTree, target: &WiringTarget) -> String {
+    // Global scope — use bare name
+    if target.table_id == tree.global_scope.resource_id {
+        if let Some(sym) = tree.global_scope.get(target.symbol_id) {
+            return sym.name.clone();
+        }
+        return "?".to_string();
+    }
+    // Cross-package — construct URL
+    if let Some(target_sym) = find_symbol_in_tree(tree, target.table_id, target.symbol_id) {
+        let path = find_package_path(tree, target.table_id);
+        if path.is_empty() {
+            return target_sym.name.clone();
+        }
+        return format!("/{}/{}", path, target_sym.name);
+    }
+    "?".to_string()
+}
+
 /// Parse an optional parenthesised type marker from a token sequence.
 ///
 /// If `tokens[idx]` starts with `(`, returns the marker text (with the
 /// outer parentheses removed) and the index of the next token.
 /// Otherwise returns `None` and the original index.
-fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<&'a str>, usize) {
+///
+/// Handles multi-token markers like `(list of int32)` by consuming
+/// tokens until the closing `)`.
+fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<String>, usize) {
     if idx < tokens.len() && tokens[idx].starts_with('(') {
-        let mut s = tokens[idx];
-        if s.ends_with(')') {
-            s = &s[1..s.len() - 1];
+        let mut marker = tokens[idx];
+        if marker.ends_with(')') {
+            // Single-token marker: (K_number)
+            marker = &marker[1..marker.len() - 1];
+            idx += 1;
+            return (Some(marker.to_string()), idx);
         }
+        // Multi-token marker: (list of int32)
+        // Consume tokens until we find one ending with ')'
+        let mut parts = vec![&marker[1..]]; // strip leading '('
         idx += 1;
-        (Some(s), idx)
-    } else {
-        (None, idx)
+        while idx < tokens.len() {
+            let t = tokens[idx];
+            if let Some(stripped) = t.strip_suffix(')') {
+                parts.push(stripped); // strip trailing ')'
+                idx += 1;
+                return (Some(parts.join(" ")), idx);
+            }
+            parts.push(t);
+            idx += 1;
+        }
+        // Unclosed '(' — return what we have
+        return (Some(parts.join(" ")), idx);
     }
+    (None, idx)
 }
 
 // ---------------------------------------------------------------------------
@@ -1728,8 +1989,8 @@ fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<&'a s
 /// Write an [`InterTree`] as a textual Inter string.
 ///
 /// This is the main entry point for generating `.intert` output. It
-/// traverses the tree recursively, writing each package's instructions
-/// and child packages with appropriate tab indentation.
+/// traverses the tree recursively, writing each package's items
+/// (instructions and child packages) with appropriate tab indentation.
 ///
 /// The output is designed to be readable by the existing `inter` tool
 /// and by this crate's own [`read`] function (round-trip fidelity).
@@ -1741,30 +2002,30 @@ pub fn write(tree: &InterTree) -> String {
 
 /// Write a single package and all its descendants.
 ///
-/// Instructions are written first, then child packages in insertion order.
-/// Each level of nesting adds one tab of indentation.
+/// Items are written in order: instructions and child packages are
+/// interleaved as they appear in the [`Package::items`] list. This
+/// preserves the original ordering from the textual Inter source.
 ///
-/// Instruction nesting is tracked: `code` and `inv` instructions increase
-/// the depth for their children (subsequent instructions at higher indentation
-/// in the textual format).
+/// Each level of nesting adds one tab of indentation.
 fn write_package(tree: &InterTree, pkg: &Package, depth: usize, out: &mut String) {
     let indent = "\t".repeat(depth);
 
-    // Write instructions
-    for instr in &pkg.instructions {
-        write_instruction(tree, pkg, instr, depth + instr.depth, out);
-    }
-
-    // Write child packages
-    for name in &pkg.child_order {
-        if let Some(child) = pkg.children.get(name) {
-            let type_str = child.package_type.keyword();
-            let marker = child.type_marker
-                .and_then(|id| tree.get_string(id))
-                .map(|m| format!("({}) ", m))
-                .unwrap_or_default();
-            out.push_str(&format!("{}package {}{} {}\n", indent, marker, child.name, type_str));
-            write_package(tree, child, depth + 1, out);
+    for item in &pkg.items {
+        match item {
+            PackageItem::Instruction(instr) => {
+                write_instruction(tree, pkg, instr, depth + instr.depth, out);
+            }
+            PackageItem::Child(name) => {
+                if let Some(child) = pkg.children.get(name) {
+                    let type_str = child.package_type.keyword();
+                    let marker = child.type_marker
+                        .and_then(|id| tree.get_string(id))
+                        .map(|m| format!("({}) ", m))
+                        .unwrap_or_default();
+                    out.push_str(&format!("{}package {}{} {}\n", indent, marker, child.name, type_str));
+                    write_package(tree, child, depth + 1, out);
+                }
+            }
         }
     }
 }
@@ -1785,12 +2046,27 @@ fn write_instruction(
 
     match instr.construct {
         ConstructId::Comment => {
-            out.push_str(&format!("{}#\n", indent));
+            if let Some(text_id) = instr.field(1) {
+                let text = tree.get_string(text_id).unwrap_or("");
+                out.push_str(&format!("{}# {}\n", indent, text));
+            } else {
+                out.push_str(&format!("{}#\n", indent));
+            }
         }
         ConstructId::Packagetype => {
             let name_id = instr.field(1).unwrap_or(0);
             let name = tree.get_string(name_id).unwrap_or("?");
             out.push_str(&format!("{}packagetype {}\n", indent, name));
+        }
+        ConstructId::Primitive => {
+            let name_id = instr.field(1).unwrap_or(0);
+            let name = tree.get_string(name_id).unwrap_or("?");
+            if let Some(sig_id) = instr.field(2) {
+                let sig = tree.get_string(sig_id).unwrap_or("?");
+                out.push_str(&format!("{}primitive {} {}\n", indent, name, sig));
+            } else {
+                out.push_str(&format!("{}primitive {}\n", indent, name));
+            }
         }
         ConstructId::Constant => {
             let sym_id = instr.field(1).unwrap_or(0);
@@ -1810,9 +2086,11 @@ fn write_instruction(
         ConstructId::Typename => {
             let sym_id = instr.field(1).unwrap_or(0);
             let type_id = instr.field(2).unwrap_or(0);
+            let op_id = instr.field(3).unwrap_or(0);
             let sym_name = pkg.symbols.get(sym_id).map(|s| s.name.as_str()).unwrap_or("?");
             let type_str = tree.get_string(type_id).unwrap_or("?");
-            out.push_str(&format!("{}typename {} = {}\n", indent, sym_name, type_str));
+            let operator = tree.get_string(op_id).unwrap_or("=");
+            out.push_str(&format!("{}typename {} {} {}\n", indent, sym_name, operator, type_str));
         }
         ConstructId::Variable => {
             let sym_id = instr.field(1).unwrap_or(0);
@@ -1913,18 +2191,50 @@ fn write_instruction(
                     &|id| resolve_symbol_name(tree, pkg, id),
                 );
                 out.push_str(&format!(
-                    "{}propertyvalue {} {} = {}\n",
-                    indent, owner_name, prop_name, val_str
+                    "{}propertyvalue {} of {} = {}\n",
+                    indent, prop_name, owner_name, val_str
                 ));
             }
         }
         ConstructId::Permission => {
-            out.push_str(&format!("{}permission\n", indent));
+            let kind_id = instr.field(1).unwrap_or(0);
+            let prop_id = instr.field(2).unwrap_or(0);
+            let kind_name = pkg.symbols.get(kind_id).map(|s| s.name.as_str()).unwrap_or("?");
+            let prop_name = pkg.symbols.get(prop_id).map(|s| s.name.as_str()).unwrap_or("?");
+            out.push_str(&format!(
+                "{}permission for {} to have {}\n",
+                indent, kind_name, prop_name
+            ));
         }
         ConstructId::Pragma => {
             let target_id = instr.field(1).unwrap_or(0);
             let target = tree.get_string(target_id).unwrap_or("?");
-            out.push_str(&format!("{}pragma {}\n", indent, target));
+            if let Some(value_id) = instr.field(2) {
+                let value = tree.get_string(value_id).unwrap_or("?");
+                out.push_str(&format!("{}pragma {} \"{}\"\n", indent, target, value));
+            } else {
+                out.push_str(&format!("{}pragma {}\n", indent, target));
+            }
+        }
+        ConstructId::Cast => {
+            let to_id = instr.field(1).unwrap_or(0);
+            let from_id = instr.field(2).unwrap_or(0);
+            let to_type = tree.get_string(to_id).unwrap_or("?");
+            let from_type = tree.get_string(from_id).unwrap_or("?");
+            out.push_str(&format!("{}cast {} <- {}\n", indent, to_type, from_type));
+        }
+        ConstructId::Splat => {
+            if let (Some(fmt), Some(content)) = (
+                ValueFormat::from_u32(instr.field(1).unwrap_or(0)),
+                instr.field(2),
+            ) {
+                let val = InterValue { format: fmt, content };
+                let val_str = val.to_text(
+                    &|id| tree.get_string(id).unwrap_or("?").to_string(),
+                    &|id| resolve_symbol_name(tree, pkg, id),
+                );
+                out.push_str(&format!("{}splat {}\n", indent, val_str));
+            }
         }
         ConstructId::Insert => {
             out.push_str(&format!("{}insert\n", indent));
@@ -1938,10 +2248,17 @@ fn write_instruction(
             let sym_name = sym.map(|s| s.name.as_str()).unwrap_or("?");
             if let Some(sym) = sym {
                 if let Some(ref name) = sym.wired_to_name {
-                    out.push_str(&format!("{}plug {} ~~> \"{}\"\n", indent, sym_name, name));
-                } else if let Some(ref _target) = sym.wired_to {
-                    // We'd need to look up the target symbol name
-                    out.push_str(&format!("{}plug {}\n", indent, sym_name));
+                    // URL targets (starting with /) are written bare;
+                    // other targets (forward references) are quoted.
+                    if name.starts_with('/') {
+                        out.push_str(&format!("{}plug {} ~~> {}\n", indent, sym_name, name));
+                    } else {
+                        out.push_str(&format!("{}plug {} ~~> \"{}\"\n", indent, sym_name, name));
+                    }
+                } else if let Some(ref target) = sym.wired_to {
+                    // Resolved wiring — look up the target and write its URL
+                    let target_url = format_wiring_target(tree, target);
+                    out.push_str(&format!("{}plug {} ~~> {}\n", indent, sym_name, target_url));
                 } else {
                     out.push_str(&format!("{}plug {}\n", indent, sym_name));
                 }
@@ -1953,7 +2270,17 @@ fn write_instruction(
             let sym_name = sym.map(|s| s.name.as_str()).unwrap_or("?");
             if let Some(sym) = sym {
                 if let Some(ref name) = sym.wired_to_name {
-                    out.push_str(&format!("{}socket {} ~~> \"{}\"\n", indent, sym_name, name));
+                    // URL targets (starting with /) are written bare;
+                    // other targets (forward references) are quoted.
+                    if name.starts_with('/') {
+                        out.push_str(&format!("{}socket {} ~~> {}\n", indent, sym_name, name));
+                    } else {
+                        out.push_str(&format!("{}socket {} ~~> \"{}\"\n", indent, sym_name, name));
+                    }
+                } else if let Some(ref target) = sym.wired_to {
+                    // Resolved wiring — look up the target and write its URL
+                    let target_url = format_wiring_target(tree, target);
+                    out.push_str(&format!("{}socket {} ~~> {}\n", indent, sym_name, target_url));
                 } else {
                     out.push_str(&format!("{}socket {}\n", indent, sym_name));
                 }
@@ -2004,7 +2331,7 @@ mod tests {
         let main = tree.find_package("/main").unwrap();
         let main_fn = main.get_child("Main").unwrap();
         assert_eq!(main_fn.package_type, PackageType::Code);
-        assert_eq!(main_fn.instructions.len(), 4); // code, inv, inv, val
+        assert_eq!(main_fn.instructions().count(), 4); // code, inv, inv, val
     }
 
     #[test]
@@ -2113,7 +2440,7 @@ package main _plain
     }
 
     #[test]
-    fn test_error_unclosed_quote() {
+    fn test_unclosed_quote_currently_accepted() {
         // A quoted string that never closes. Since tokenize doesn't
         // error on this (it just keeps the token open), the parser
         // should still succeed. This documents current behavior.
@@ -2163,5 +2490,105 @@ package main _plain
         let input = "package main _plain\n\tconstant x = \"hello\\rworld\"\n";
         let result = read(input);
         assert!(result.is_err());
+    }
+
+    // --- Propertyvalue tests ---
+
+    #[test]
+    fn test_parse_propertyvalue_with_of() {
+        let input = r#"package main _plain
+	propertyvalue P_strength of I_citrus = 20
+"#;
+        let tree = read(input).unwrap();
+        let main = tree.find_package("/main").unwrap();
+        // Check that symbols were created correctly
+        assert!(main.symbols.get_by_name("P_strength").is_some());
+        assert!(main.symbols.get_by_name("I_citrus").is_some());
+        // Check the instruction
+        let instrs: Vec<&Instruction> = main.instructions().collect();
+        assert_eq!(instrs.len(), 1);
+        assert_eq!(instrs[0].construct, ConstructId::Propertyvalue);
+        let owner_id = instrs[0].field(1).unwrap_or(0);
+        let prop_id = instrs[0].field(2).unwrap_or(0);
+        let owner = main.symbols.get(owner_id).unwrap();
+        let prop = main.symbols.get(prop_id).unwrap();
+        assert_eq!(owner.name, "I_citrus");
+        assert_eq!(prop.name, "P_strength");
+    }
+
+    #[test]
+    fn test_parse_propertyvalue_without_of() {
+        let input = r#"package main _plain
+	propertyvalue P_strength I_citrus = 20
+"#;
+        let tree = read(input).unwrap();
+        let main = tree.find_package("/main").unwrap();
+        let instrs: Vec<&Instruction> = main.instructions().collect();
+        assert_eq!(instrs.len(), 1);
+        let owner_id = instrs[0].field(1).unwrap_or(0);
+        let prop_id = instrs[0].field(2).unwrap_or(0);
+        let owner = main.symbols.get(owner_id).unwrap();
+        let prop = main.symbols.get(prop_id).unwrap();
+        assert_eq!(owner.name, "I_citrus");
+        assert_eq!(prop.name, "P_strength");
+    }
+
+    #[test]
+    fn test_parse_permission() {
+        let input = r#"package main _plain
+	permission for K_odour to have P_strength
+"#;
+        let tree = read(input).unwrap();
+        let main = tree.find_package("/main").unwrap();
+        assert!(main.symbols.get_by_name("K_odour").is_some());
+        assert!(main.symbols.get_by_name("P_strength").is_some());
+        let instrs: Vec<&Instruction> = main.instructions().collect();
+        assert_eq!(instrs.len(), 1);
+        assert_eq!(instrs[0].construct, ConstructId::Permission);
+        let kind_id = instrs[0].field(1).unwrap_or(0);
+        let prop_id = instrs[0].field(2).unwrap_or(0);
+        let kind = main.symbols.get(kind_id).unwrap();
+        let prop = main.symbols.get(prop_id).unwrap();
+        assert_eq!(kind.name, "K_odour");
+        assert_eq!(prop.name, "P_strength");
+    }
+
+    #[test]
+    fn test_parse_pragma_with_value() {
+        let input = r#"package main _plain
+	pragma target_I6 "$MAX_STATIC_DATA=180000"
+"#;
+        let tree = read(input).unwrap();
+        let main = tree.find_package("/main").unwrap();
+        let instrs: Vec<&Instruction> = main.instructions().collect();
+        assert_eq!(instrs.len(), 1);
+        assert_eq!(instrs[0].construct, ConstructId::Pragma);
+        let target_id = instrs[0].field(1).unwrap_or(0);
+        let value_id = instrs[0].field(2).unwrap_or(0);
+        let target = tree.get_string(target_id).unwrap_or("?");
+        let value = tree.get_string(value_id).unwrap_or("?");
+        assert_eq!(target, "target_I6");
+        assert_eq!(value, "$MAX_STATIC_DATA=180000");
+    }
+
+    #[test]
+    fn test_parse_type_marker_multi_token() {
+        let (marker, idx) = parse_type_marker(&["(list", "of", "int32)"], 0);
+        assert_eq!(marker, Some("list of int32".to_string()));
+        assert_eq!(idx, 3);
+    }
+
+    #[test]
+    fn test_parse_type_marker_single_token() {
+        let (marker, idx) = parse_type_marker(&["(K_number)", "x"], 0);
+        assert_eq!(marker, Some("K_number".to_string()));
+        assert_eq!(idx, 1);
+    }
+
+    #[test]
+    fn test_parse_type_marker_none() {
+        let (marker, idx) = parse_type_marker(&["x", "=", "42"], 0);
+        assert!(marker.is_none());
+        assert_eq!(idx, 0);
     }
 }

@@ -6,9 +6,9 @@
 //! # Architecture
 //!
 //! An Inter tree is a hierarchical structure of **packages** (like nested
-//! boxes), each containing **symbols** (named references) and **instructions**
-//! (bytecode operations). This mirrors the C implementation's `inter_tree`,
-//! `inter_package`, and `inter_symbols_table`.
+//! boxes), each containing **symbols** (named references) and **items**
+//! (instructions and child packages in order). This mirrors the C
+//! implementation's `inter_tree`, `inter_package`, and `inter_symbols_table`.
 //!
 //! ```text
 //! InterTree
@@ -22,6 +22,20 @@
 //!         │   └── kinds (Package, type=_submodule)
 //!         └── BasicInformKit (Package, type=_module)
 //! ```
+//!
+//! # Lossless Ordering
+//!
+//! A key design goal is that the in-memory representation can faithfully
+//! reproduce the textual Inter format. This means preserving the order of
+//! instructions and child packages as they appear in the source. The
+//! [`Package::items`] field stores this order as a sequence of
+//! [`PackageItem`] entries, each of which is either an [`Instruction`] or
+//! a child package name.
+//!
+//! For fast child lookup, we also maintain a [`Package::children`] HashMap
+//! that maps child names to their [`Package`] objects. This dual
+//! representation (ordered items + indexed children) mirrors the C
+//! implementation's linked list + hash table approach.
 //!
 //! # The Warehouse
 //!
@@ -402,6 +416,30 @@ impl PackageType {
 }
 
 // ---------------------------------------------------------------------------
+// PackageItem
+// ---------------------------------------------------------------------------
+
+/// One entry in a package's ordered body.
+///
+/// A package's body is an ordered sequence of instructions and child
+/// packages. This matches the textual Inter format, where lines at the
+/// same indentation level can be either instructions or `package`
+/// declarations.
+///
+/// The `Child` variant stores only the child's name; the actual
+/// [`Package`] object lives in the parent's [`Package::children`] HashMap.
+/// This dual representation (ordered items + indexed children) mirrors
+/// the C implementation's linked list + hash table approach.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageItem {
+    /// An instruction in the package body.
+    Instruction(Instruction),
+    /// A child package, identified by name. The actual `Package` object
+    /// is stored in the parent's `children` HashMap.
+    Child(String),
+}
+
+// ---------------------------------------------------------------------------
 // Package
 // ---------------------------------------------------------------------------
 
@@ -414,8 +452,8 @@ impl PackageType {
 /// - A **name** (e.g., "main", "source_text", "kinds")
 /// - A **type** (e.g., `_plain`, `_code`, `_module`)
 /// - A **symbols table** for named entities defined in this package
-/// - A list of **instructions** (the actual Inter bytecode)
-/// - **Child packages** (forming the hierarchy)
+/// - An ordered list of **items** (instructions and child packages)
+/// - A **children** HashMap for fast child lookup by name
 ///
 /// Corresponds to `inter_package` in the C implementation.
 #[derive(Debug, Clone)]
@@ -439,16 +477,20 @@ pub struct Package {
     /// by instructions in this package are recorded here.
     pub symbols: SymbolsTable,
 
-    /// Instructions in this package, in order. These are the actual
-    /// Inter bytecode nodes.
-    pub instructions: Vec<Instruction>,
+    /// Ordered contents of this package: instructions and child package
+    /// references in the order they appear in the textual Inter source.
+    ///
+    /// This is the primary field for serialization. The writer iterates
+    /// this list in order, emitting each instruction or child package
+    /// with the correct indentation.
+    pub items: Vec<PackageItem>,
 
     /// Child packages, indexed by name for fast lookup.
+    ///
+    /// Every child package referenced in `items` via `PackageItem::Child`
+    /// must have an entry here. The reverse is also true: every entry
+    /// here must be referenced in `items` (enforced by [`add_child`]).
     pub children: HashMap<String, Package>,
-
-    /// Child package names in insertion order. This preserves the
-    /// order packages were added, which matters for textual Inter output.
-    pub child_order: Vec<String>,
 
     /// Persistent flags from the binary format.
     pub flags: u32,
@@ -473,15 +515,23 @@ impl Package {
             package_type,
             type_marker: None,
             symbols,
-            instructions: Vec::new(),
+            items: Vec::new(),
             children: HashMap::new(),
-            child_order: Vec::new(),
             flags: 0,
         }
     }
 
-    /// Add a child package. The child is indexed by name and appended to
-    /// the insertion order.
+    // ---------------------------------------------------------------
+    // Adding items
+    // ---------------------------------------------------------------
+
+    /// Append an instruction to this package's ordered item list.
+    pub fn add_instruction(&mut self, instr: Instruction) {
+        self.items.push(PackageItem::Instruction(instr));
+    }
+
+    /// Add a child package. The child is appended to the ordered item
+    /// list and indexed by name for fast lookup.
     ///
     /// # Panics
     ///
@@ -494,9 +544,13 @@ impl Package {
             "duplicate child package name: {}",
             name
         );
-        self.child_order.push(name.clone());
+        self.items.push(PackageItem::Child(name.clone()));
         self.children.insert(name, child);
     }
+
+    // ---------------------------------------------------------------
+    // Child lookup
+    // ---------------------------------------------------------------
 
     /// Look up a child package by name.
     pub fn get_child(&self, name: &str) -> Option<&Package> {
@@ -508,10 +562,50 @@ impl Package {
         self.children.get_mut(name)
     }
 
-    /// Append an instruction to this package's instruction list.
-    pub fn add_instruction(&mut self, instr: Instruction) {
-        self.instructions.push(instr);
+    // ---------------------------------------------------------------
+    // Iteration
+    // ---------------------------------------------------------------
+
+    /// Iterate over child package names in insertion order.
+    ///
+    /// This is the canonical way to iterate children in the order they
+    /// appear in the textual Inter source. Each name can be looked up
+    /// via [`get_child`].
+    pub fn child_names(&self) -> impl Iterator<Item = &str> {
+        self.items.iter().filter_map(|item| match item {
+            PackageItem::Child(name) => Some(name.as_str()),
+            _ => None,
+        })
     }
+
+    /// Iterate over instructions in order.
+    pub fn instructions(&self) -> impl Iterator<Item = &Instruction> {
+        self.items.iter().filter_map(|item| match item {
+            PackageItem::Instruction(instr) => Some(instr),
+            _ => None,
+        })
+    }
+
+    /// Iterate over instructions in order, mutable.
+    pub fn instructions_mut(&mut self) -> impl Iterator<Item = &mut Instruction> {
+        self.items.iter_mut().filter_map(|item| match item {
+            PackageItem::Instruction(instr) => Some(instr),
+            _ => None,
+        })
+    }
+
+    /// Iterate over child packages in insertion order.
+    ///
+    /// Each child is looked up by name in the `children` HashMap.
+    /// This is the canonical way to iterate children for writing or
+    /// traversal.
+    pub fn children_iter(&self) -> impl Iterator<Item = &Package> {
+        self.child_names().filter_map(|name| self.children.get(name))
+    }
+
+    // ---------------------------------------------------------------
+    // Queries
+    // ---------------------------------------------------------------
 
     /// Whether this package is a function body (type `_code`).
     /// Code packages have different rules about what constructs can appear.
@@ -696,6 +790,7 @@ impl Default for InterTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ConstructId;
 
     #[test]
     fn test_create_tree() {
@@ -739,5 +834,56 @@ mod tests {
         // Different string should get a different ID
         let id3 = tree.intern_string("world");
         assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn test_package_items_ordered() {
+        let counter = Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE));
+        let mut pkg = Package::new(1, "test".to_string(), PackageType::Plain, counter);
+
+        // Add some instructions
+        let instr1 = Instruction::new(ConstructId::Constant);
+        let instr2 = Instruction::new(ConstructId::Variable);
+        pkg.add_instruction(instr1.clone());
+        pkg.add_instruction(instr2.clone());
+
+        // Add a child package
+        let child = Package::new(2, "child".to_string(), PackageType::Code, Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE + 10)));
+        pkg.add_child(child);
+
+        // Add another instruction
+        let instr3 = Instruction::new(ConstructId::Nop);
+        pkg.add_instruction(instr3.clone());
+
+        // Verify order: instr1, instr2, child, instr3
+        assert_eq!(pkg.items.len(), 4);
+        match &pkg.items[0] {
+            PackageItem::Instruction(instr) => assert_eq!(instr.construct, ConstructId::Constant),
+            _ => panic!("expected instruction"),
+        }
+        match &pkg.items[1] {
+            PackageItem::Instruction(instr) => assert_eq!(instr.construct, ConstructId::Variable),
+            _ => panic!("expected instruction"),
+        }
+        match &pkg.items[2] {
+            PackageItem::Child(name) => assert_eq!(name, "child"),
+            _ => panic!("expected child"),
+        }
+        match &pkg.items[3] {
+            PackageItem::Instruction(instr) => assert_eq!(instr.construct, ConstructId::Nop),
+            _ => panic!("expected instruction"),
+        }
+
+        // Verify child lookup
+        assert!(pkg.get_child("child").is_some());
+        assert!(pkg.get_child("nonexistent").is_none());
+
+        // Verify iteration
+        let instrs: Vec<&Instruction> = pkg.instructions().collect();
+        assert_eq!(instrs.len(), 3);
+
+        let children: Vec<&Package> = pkg.children_iter().collect();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "child");
     }
 }

@@ -771,7 +771,7 @@ impl InterTree {
         let parts: Vec<&str> = url.split('/').filter(|p| !p.is_empty()).collect();
         let mut current = &mut self.root;
         for part in parts {
-            current = current.children.get_mut(part)?;
+            current = current.get_child_mut(part)?;
         }
         Some(current)
     }

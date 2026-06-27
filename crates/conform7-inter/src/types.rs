@@ -358,7 +358,15 @@ impl InterType {
     ///
     /// For named types, this outputs the type name (e.g., `K_number`).
     /// For base types, it outputs the keyword (e.g., `int32`).
-    /// For compound types, it outputs constructor + operands (e.g., `list of int32`).
+    /// For compound types, it outputs constructor + operands using the
+    /// correct Inform prepositions:
+    /// - `list of X`
+    /// - `activity on X`
+    /// - `column of X`
+    /// - `table of X`
+    /// - `description of X`
+    /// - `rulebook of X`
+    /// - `relation of X to Y`
     pub fn to_text(&self) -> String {
         if let Some(ref name) = self.type_name {
             return name.clone();
@@ -366,12 +374,31 @@ impl InterType {
         if self.constructor.is_base() {
             return self.constructor.keyword().to_string();
         }
-        let mut s = self.constructor.keyword().to_string();
-        for op in &self.operands {
-            s.push(' ');
-            s.push_str(&op.to_text());
+        match self.constructor {
+            TypeConstructor::List => format!("list of {}", self.operands[0].to_text()),
+            TypeConstructor::Activity => format!("activity on {}", self.operands[0].to_text()),
+            TypeConstructor::Column => format!("column of {}", self.operands[0].to_text()),
+            TypeConstructor::Table => format!("table of {}", self.operands[0].to_text()),
+            TypeConstructor::Description => {
+                format!("description of {}", self.operands[0].to_text())
+            }
+            TypeConstructor::Rulebook => format!("rulebook of {}", self.operands[0].to_text()),
+            TypeConstructor::Relation => {
+                format!(
+                    "relation of {} to {}",
+                    self.operands[0].to_text(),
+                    self.operands[1].to_text()
+                )
+            }
+            _ => {
+                let mut s = self.constructor.keyword().to_string();
+                for op in &self.operands {
+                    s.push(' ');
+                    s.push_str(&op.to_text());
+                }
+                s
+            }
         }
-        s
     }
 }
 
@@ -452,7 +479,7 @@ mod tests {
         assert_eq!(InterType::text().to_text(), "text");
         assert_eq!(InterType::void().to_text(), "void");
         assert_eq!(InterType::unchecked().to_text(), "unchecked");
-        assert_eq!(InterType::list_of(InterType::int32()).to_text(), "list int32");
+        assert_eq!(InterType::list_of(InterType::int32()).to_text(), "list of int32");
 
         // Named type
         let named = InterType {
@@ -461,6 +488,36 @@ mod tests {
             type_name: Some("K_number".to_string()),
         };
         assert_eq!(named.to_text(), "K_number");
+
+        // Prepositional compound types
+        let column = InterType {
+            constructor: TypeConstructor::Column,
+            operands: vec![InterType {
+                constructor: TypeConstructor::Equated,
+                operands: vec![InterType::int32()],
+                type_name: Some("K_number".to_string()),
+            }],
+            type_name: None,
+        };
+        assert_eq!(column.to_text(), "column of K_number");
+
+        let relation = InterType {
+            constructor: TypeConstructor::Relation,
+            operands: vec![
+                InterType {
+                    constructor: TypeConstructor::Equated,
+                    operands: vec![InterType::int32()],
+                    type_name: Some("K_player".to_string()),
+                },
+                InterType {
+                    constructor: TypeConstructor::Equated,
+                    operands: vec![InterType::int32()],
+                    type_name: Some("K_room".to_string()),
+                },
+            ],
+            type_name: None,
+        };
+        assert_eq!(relation.to_text(), "relation of K_player to K_room");
     }
 
     #[test]

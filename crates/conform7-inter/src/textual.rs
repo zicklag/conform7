@@ -474,9 +474,8 @@ fn parse_package(
         });
     }
     let mut idx = 1;
-    let type_marker = parse_type_marker(tokens, idx);
-    let pkg_type_marker = type_marker.0;
-    idx = type_marker.1;
+    let (pkg_type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
+    idx = next_idx;
 
     if idx >= tokens.len() {
         return Err(TextualError::ParseError {
@@ -546,7 +545,7 @@ fn parse_constant(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -684,7 +683,7 @@ fn parse_variable(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -779,7 +778,7 @@ fn parse_local(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -974,7 +973,7 @@ fn parse_val(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -1018,7 +1017,7 @@ fn parse_instance(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -1084,7 +1083,7 @@ fn parse_property(
     }
 
     let mut idx = 1;
-    let (type_marker, next_idx) = parse_type_marker(tokens, idx);
+    let (type_marker, next_idx) = parse_type_marker(tokens, idx, line_num)?;
     idx = next_idx;
 
     if idx >= tokens.len() {
@@ -1259,10 +1258,13 @@ fn parse_pragma(
     tree: &mut InterTree,
     state: &mut ReadState,
     tokens: &[&str],
-    _line_num: usize,
+    line_num: usize,
 ) -> Result<(), TextualError> {
     if tokens.len() < 2 {
-        return Ok(()); // malformed pragma, just skip
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "pragma requires a target".to_string(),
+        });
     }
 
     let target = tokens[1].to_string();
@@ -1296,13 +1298,9 @@ fn parse_pragma(
     Ok(())
 }
 
-/// Parse an `insert` directive.
+/// Parse a `splat` (raw I6 code) instruction.
 ///
-/// Example: `insert`
-///
-/// Parse a  (raw I6 code) instruction.
-///
-/// Example: 
+/// Example: `splat "Sing a song of \"six splats\"...\nand don't wait up"`
 ///
 /// Splat embeds raw Inform 6 code inline. The argument is a string literal
 /// that may contain embedded quotes and spaces. We read the raw content
@@ -1371,13 +1369,10 @@ fn parse_cast(
     Ok(())
 }
 
-/// Parse a `splat` (raw I6 code) instruction.
+/// Parse an `insert` directive.
 ///
-/// Example: `splat "Sing a song of \"six splats\"...\nand don't wait up"`
+/// Example: `insert`
 ///
-/// Splat embeds raw Inform 6 code inline. The argument is a string literal
-/// that may contain embedded quotes and spaces. We read the raw content
-/// after the keyword to avoid issues with the tokenizer.
 /// Marks a position where another package's contents will be inserted
 /// during linking. Used for the connectors mechanism.
 fn parse_insert(
@@ -1494,10 +1489,10 @@ fn parse_socket(
 
 /// Generic instruction parser for constructs we don't fully handle yet.
 ///
-/// This is a fallback for code-level constructs like `assembly`, `cast`,
-/// `evaluation`, `ref`, `reference`, `splat`, and `label`. These are
-/// stored as instructions with their construct ID and any remaining
-/// tokens as frame words, so that round-trip fidelity is preserved.
+/// This is a fallback for code-level constructs like `assembly`, `evaluation`,
+/// `ref`, `reference`, and `label`. These are stored as instructions with
+/// their construct ID and any remaining tokens as frame words, so that
+/// round-trip fidelity is preserved.
 fn add_instruction(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -1706,7 +1701,7 @@ fn parse_value_literal(
     // Sum literal: sum{ ... }
     if s.starts_with("sum{") {
         let id = tree.intern_string(s);
-        return Ok(InterValue::list(id));
+        return Ok(InterValue::sum(id));
     }
 
     // Unsigned decimal
@@ -1953,14 +1948,18 @@ fn format_wiring_target(tree: &InterTree, target: &WiringTarget) -> String {
 ///
 /// Handles multi-token markers like `(list of int32)` by consuming
 /// tokens until the closing `)`.
-fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<String>, usize) {
+fn parse_type_marker<'a>(
+    tokens: &'a [&'a str],
+    mut idx: usize,
+    line_num: usize,
+) -> Result<(Option<String>, usize), TextualError> {
     if idx < tokens.len() && tokens[idx].starts_with('(') {
         let mut marker = tokens[idx];
         if marker.ends_with(')') {
             // Single-token marker: (K_number)
             marker = &marker[1..marker.len() - 1];
             idx += 1;
-            return (Some(marker.to_string()), idx);
+            return Ok((Some(marker.to_string()), idx));
         }
         // Multi-token marker: (list of int32)
         // Consume tokens until we find one ending with ')'
@@ -1971,15 +1970,18 @@ fn parse_type_marker<'a>(tokens: &'a [&'a str], mut idx: usize) -> (Option<Strin
             if let Some(stripped) = t.strip_suffix(')') {
                 parts.push(stripped); // strip trailing ')'
                 idx += 1;
-                return (Some(parts.join(" ")), idx);
+                return Ok((Some(parts.join(" ")), idx));
             }
             parts.push(t);
             idx += 1;
         }
-        // Unclosed '(' — return what we have
-        return (Some(parts.join(" ")), idx);
+        // Unclosed '(' — report an error
+        return Err(TextualError::ParseError {
+            line: line_num,
+            message: "unclosed type marker '('>".to_string(),
+        });
     }
-    (None, idx)
+    Ok((None, idx))
 }
 
 // ---------------------------------------------------------------------------
@@ -2573,22 +2575,90 @@ package main _plain
 
     #[test]
     fn test_parse_type_marker_multi_token() {
-        let (marker, idx) = parse_type_marker(&["(list", "of", "int32)"], 0);
+        let (marker, idx) = parse_type_marker(&["(list", "of", "int32)"], 0, 1).unwrap();
         assert_eq!(marker, Some("list of int32".to_string()));
         assert_eq!(idx, 3);
     }
 
     #[test]
     fn test_parse_type_marker_single_token() {
-        let (marker, idx) = parse_type_marker(&["(K_number)", "x"], 0);
+        let (marker, idx) = parse_type_marker(&["(K_number)", "x"], 0, 1).unwrap();
         assert_eq!(marker, Some("K_number".to_string()));
         assert_eq!(idx, 1);
     }
 
     #[test]
     fn test_parse_type_marker_none() {
-        let (marker, idx) = parse_type_marker(&["x", "=", "42"], 0);
+        let (marker, idx) = parse_type_marker(&["x", "=", "42"], 0, 1).unwrap();
         assert!(marker.is_none());
         assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn test_parse_type_marker_unclosed() {
+        let result = parse_type_marker(&["(list", "of", "int32"], 0, 7);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unclosed"), "error should mention unclosed marker: {}", err);
+    }
+
+    // --- Round-trip tests for recently fixed constructs ---
+
+    #[test]
+    fn test_roundtrip_typename_subkind() {
+        let input = "package main _plain\n\ttypename K_piece \u{003c}= K_object\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("typename K_piece \u{003c}= K_object"));
+    }
+
+    #[test]
+    fn test_roundtrip_cast() {
+        let input = "package main _plain\n\tpackage R _code\n\t\tcode\n\t\t\tcast /main/K_number \u{003c}- /main/K_colour\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("cast /main/K_number \u{003c}- /main/K_colour"));
+    }
+
+    #[test]
+    fn test_roundtrip_splat_with_embedded_quotes() {
+        let input = "package main _plain\n\tsplat \"Sing a song of \\\"six splats\\\"...\\nand don't wait up\"\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("splat \"Sing a song of \\\"six splats\\\"...\\nand don't wait up\""));
+    }
+
+    #[test]
+    fn test_roundtrip_comment() {
+        let input = "# This is a comment\npackage main _plain\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("# This is a comment"));
+    }
+
+    #[test]
+    fn test_roundtrip_pragma_value() {
+        let input = "package main _plain\n\tpragma target_I6 \"$MAX_STATIC_DATA=180000\"\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("pragma target_I6 \"$MAX_STATIC_DATA=180000\""));
+    }
+
+    #[test]
+    fn test_roundtrip_plug_socket_wiring() {
+        let input = "package main _plain\n\tplug P ~~\u{003e} /main/target\n\tsocket S ~~\u{003e} /main/target\n";
+        let tree = read(input).unwrap();
+        let output = write(&tree);
+        assert!(output.contains("plug P ~~\u{003e} /main/target"));
+        assert!(output.contains("socket S ~~\u{003e} /main/target"));
+    }
+
+    #[test]
+    fn test_error_malformed_pragma() {
+        let input = "package main _plain\n\tpragma\n";
+        let result = read(input);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("pragma"));
     }
 }

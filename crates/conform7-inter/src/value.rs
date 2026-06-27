@@ -80,6 +80,9 @@ pub enum ValueFormat {
     /// Textual struct literal, used only in textual Inter. Content is a
     /// warehouse ID of the raw struct text (e.g., "{ r\"...\", ... }").
     Struct = 0x20001,
+    /// Textual sum literal, used only in textual Inter. Content is a
+    /// warehouse ID of the raw sum text (e.g., "sum{ 2, C_taxes }").
+    Sum = 0x20002,
 }
 
 impl ValueFormat {
@@ -99,6 +102,7 @@ impl ValueFormat {
             0x1000A => Some(Self::Undef),
             0x20000 => Some(Self::List),
             0x20001 => Some(Self::Struct),
+            0x20002 => Some(Self::Sum),
             _ => None,
         }
     }
@@ -205,6 +209,12 @@ impl InterValue {
         Self { format: ValueFormat::Struct, content: struct_id }
     }
 
+    /// A sum literal. The content is a warehouse ID of the raw sum text.
+    /// This format is used only for textual Inter round-tripping.
+    pub fn sum(sum_id: u32) -> Self {
+        Self { format: ValueFormat::Sum, content: sum_id }
+    }
+
     /// An undefined value. Used as a placeholder or "null" sentinel.
     /// The content is always 0 and is ignored.
     pub fn undef() -> Self {
@@ -283,7 +293,7 @@ impl InterValue {
         symbols: &dyn Fn(u32) -> String,
     ) -> String {
         match self.format {
-            ValueFormat::Decimal => format!("{}", self.content as i32),
+            ValueFormat::Decimal => format!("{}", self.content),
             ValueFormat::Signed => format!("{}", self.content as i32),
             ValueFormat::Hex => format!("0x{:x}", self.content),
             ValueFormat::Binary => format!("0b{:b}", self.content),
@@ -313,6 +323,9 @@ impl InterValue {
             }
             ValueFormat::Struct => {
                 strings(self.content) // raw struct literal, e.g. "struct{ ... }"
+            }
+            ValueFormat::Sum => {
+                strings(self.content) // raw sum literal, e.g. "sum{ ... }"
             }
             ValueFormat::Undef => "!undef".to_string(),
         }
@@ -422,6 +435,7 @@ mod tests {
             5 => "SOME_I6_DRIVEL".to_string(),
             6 => "{ 2, 3 }".to_string(),
             7 => "struct{ 5, I_red }".to_string(),
+            8 => "sum{ 2, C_taxes }".to_string(),
             _ => "?".to_string(),
         };
         let symbols = |id: u32| match id {
@@ -434,6 +448,12 @@ mod tests {
         assert_eq!(InterValue::signed_number(-5).to_text(&strings, &symbols), "-5");
         assert_eq!(InterValue::number_in_base(0xff, 16).to_text(&strings, &symbols), "0xff");
         assert_eq!(InterValue::number_in_base(5, 2).to_text(&strings, &symbols), "0b101");
+
+        // Decimal is unsigned, even for large values
+        assert_eq!(
+            InterValue::number(0xffff_ffff).to_text(&strings, &symbols),
+            "4294967295"
+        );
         assert_eq!(InterValue::text(1).to_text(&strings, &symbols), "\"hello\"");
         assert_eq!(InterValue::real(2).to_text(&strings, &symbols), "r\"3.14159\"");
         assert_eq!(InterValue::dword(3).to_text(&strings, &symbols), "dw\"frogs\"");
@@ -442,6 +462,7 @@ mod tests {
         assert_eq!(InterValue::symbolic(0x40000001).to_text(&strings, &symbols), "K_number");
         assert_eq!(InterValue::list(6).to_text(&strings, &symbols), "{ 2, 3 }");
         assert_eq!(InterValue::struct_lit(7).to_text(&strings, &symbols), "struct{ 5, I_red }");
+        assert_eq!(InterValue::sum(8).to_text(&strings, &symbols), "sum{ 2, C_taxes }");
         assert_eq!(InterValue::undef().to_text(&strings, &symbols), "!undef");
     }
 
@@ -460,6 +481,7 @@ mod tests {
         assert_eq!(ValueFormat::from_u32(0x1000A), Some(ValueFormat::Undef));
         assert_eq!(ValueFormat::from_u32(0x20000), Some(ValueFormat::List));
         assert_eq!(ValueFormat::from_u32(0x20001), Some(ValueFormat::Struct));
+        assert_eq!(ValueFormat::from_u32(0x20002), Some(ValueFormat::Sum));
         assert_eq!(ValueFormat::from_u32(0x99999), None);
     }
 

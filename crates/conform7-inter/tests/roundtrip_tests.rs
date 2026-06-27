@@ -210,4 +210,58 @@ mod identical_output {
         let input = read_fixture("packages.intert");
         assert_textual_identical(&input, "packages.intert");
     }
+
+    #[test]
+    fn list_identical() {
+        let input = read_fixture("list.intert");
+        assert_textual_identical(&input, "list.intert");
+    }
+
+    #[test]
+    fn labelling_identical() {
+        let input = read_fixture("labelling.intert");
+        assert_textual_identical(&input, "labelling.intert");
+    }
+
+    #[test]
+    fn predec_identical() {
+        let input = read_fixture("predec.intert");
+        assert_textual_identical(&input, "predec.intert");
+    }
+
+    #[test]
+    fn typedstruct_identical() {
+        let input = read_fixture("typedstruct.intert");
+        assert_textual_identical(&input, "typedstruct.intert");
+    }
+
+    #[test]
+    fn nesting_identical() {
+        let input = read_fixture("nesting.intert");
+        assert_textual_identical(&input, "nesting.intert");
+    }
+
+    #[test]
+    fn linkage_identical() {
+        let input = read_fixture("linkage.intert");
+        assert_textual_identical(&input, "linkage.intert");
+    }
+
+    #[test]
+    fn externing_identical() {
+        let input = read_fixture("externing.intert");
+        assert_textual_identical(&input, "externing.intert");
+    }
+
+    #[test]
+    fn typedfunction_identical() {
+        let input = read_fixture("typedfunction.intert");
+        assert_textual_identical(&input, "typedfunction.intert");
+    }
+
+    #[test]
+    fn misc_identical() {
+        let input = read_fixture("misc.intert");
+        assert_textual_identical(&input, "misc.intert");
+    }
 }

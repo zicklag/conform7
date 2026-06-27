@@ -1,6 +1,51 @@
 //! Textual Inter format reader and writer.
 //!
-//! Based on the `Inter in Text Files` chapter of the bytecode module.
+//! Based on `Chapter 3/Inter in Text Files.w` from the bytecode module.
+//!
+//! # The Textual Inter Format
+//!
+//! Textual Inter (`.intert`) is a human-readable, tab-indented format for
+//! Inter programs. It's designed as an interchange format — programs write it,
+//! programs read it. Humans can read it too, but it's not optimized for
+//! hand-authoring.
+//!
+//! ## Indentation
+//!
+//! Nesting is indicated by tab characters at the start of each line. Spaces
+//! are not allowed for indentation (this is enforced strictly, matching the
+//! C implementation). Each tab level represents one level of package nesting.
+//!
+//! ```text
+//! package main _plain           ← depth 0 (root)
+//! \tpackage Main _code          ← depth 1 (inside main)
+//! \t\tcode                      ← depth 2 (inside Main)
+//! \t\t\tinv !print              ← depth 3 (inside code block)
+//! \t\t\t\tval "Hello!"          ← depth 4 (argument to inv)
+//! ```
+//!
+//! ## Constructs
+//!
+//! Each non-blank line is a construct. The first word on the line is the
+//! construct keyword (e.g., `package`, `constant`, `inv`). The rest of the
+//! line provides arguments. Comments start with `#`.
+//!
+//! ## Annotations
+//!
+//! Lines can end with annotations in the form `__name` or `__name=value`.
+//! These provide metadata about the construct (e.g., `__text="hello"`).
+//!
+//! ## Forward References
+//!
+//! Symbols can be referenced by URL (e.g., `/main/K_number`) before they
+//! are defined. These forward references are resolved in a second pass
+//! after the entire file is parsed.
+//!
+//! # Reading vs Writing
+//!
+//! The reader ([`read`]) parses textual Inter into an [`InterTree`].
+//! The writer ([`write`]) serializes an [`InterTree`] back to text.
+//! Together they enable round-trip fidelity: `write(read(text)) == text`
+//! (modulo auto-inserted declarations like `packagetype` and `primitive`).
 
 use crate::instruction::{ConstructId, Instruction};
 use crate::tree::{InterTree, Package, PackageType, SymbolType, WiringTarget};
@@ -11,6 +56,10 @@ use crate::value::{unescape_text, InterValue, ValueFormat};
 // ---------------------------------------------------------------------------
 
 /// Errors that can occur when reading or writing textual Inter.
+///
+/// The C implementation uses `inter_error_message` for this purpose.
+/// We use a simpler enum since we don't need the full error location
+/// infrastructure of the C code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextualError {
     ParseError { line: usize, message: String },
@@ -32,7 +81,23 @@ impl std::error::Error for TextualError {}
 // Reading
 // ---------------------------------------------------------------------------
 
-/// Parse a textual Inter file into an InterTree.
+/// Parse a textual Inter string into an [`InterTree`].
+///
+/// This is the main entry point for reading `.intert` files. It processes
+/// the text line by line, tracking indentation to maintain the package
+/// hierarchy, and resolves forward references in a second pass.
+///
+/// # Errors
+///
+/// Returns [`TextualError::ParseError`] if the input contains invalid syntax
+/// (unknown constructs, malformed values, indentation errors).
+///
+/// # Example
+///
+/// ```ignore
+/// let input = "package main _plain\n\tconstant x = 42\n";
+/// let tree = textual::read(input)?;
+/// ```
 pub fn read(text: &str) -> Result<InterTree, TextualError> {
     let mut tree = InterTree::new();
     let mut state = ReadState::new();
@@ -75,6 +140,12 @@ pub fn read(text: &str) -> Result<InterTree, TextualError> {
     Ok(tree)
 }
 
+/// Tracks the parser's position in the package hierarchy.
+///
+/// As we parse lines, we maintain a stack of package names and their
+/// baseline indentation levels. When indentation decreases, we pop
+/// packages off the stack to return to the correct parent. This mirrors
+/// the `inter_bookmark` mechanism in the C implementation.
 struct ReadState {
     /// Stack of (package_name, baseline_depth) for nested packages.
     package_stack: Vec<(String, usize)>,
@@ -119,6 +190,13 @@ impl ReadState {
 }
 
 /// Parse a single line of textual Inter.
+///
+/// This is the core dispatch function. It:
+/// 1. Strips trailing annotations (`__foo __bar=2`)
+/// 2. Tokenizes the line (respecting quoted strings)
+/// 3. Dispatches to the appropriate construct parser based on the keyword
+///
+/// Unknown constructs produce a [`TextualError::ParseError`].
 fn parse_line(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -191,7 +269,15 @@ fn parse_line(
 }
 
 /// Split trailing annotations from a line.
-/// Annotations start with `__` preceded by whitespace.
+///
+/// Annotations start with `__` preceded by whitespace. For example:
+/// ```text
+/// package main _plain __foo __bar=2
+/// ```
+/// splits into content `"package main _plain"` and annotations
+/// `[("__foo", ""), ("__bar", "2")]`.
+///
+/// Annotations inside quoted strings are not treated as annotations.
 fn split_annotations(line: &str) -> (&str, Vec<(String, String)>) {
     // Find the first `__` that's preceded by whitespace
     let bytes = line.as_bytes();
@@ -220,7 +306,11 @@ fn parse_annotation_string(s: &str) -> Vec<(String, String)> {
     result
 }
 
-/// Tokenize a line, respecting quoted strings.
+/// Tokenize a line into words, respecting quoted strings.
+///
+/// Spaces are the token delimiter, but spaces inside double-quoted
+/// strings are preserved as part of the token. This is essential for
+/// string literals like `"Hello, world!"` which contain spaces.
 fn tokenize(line: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut in_quotes = false;
@@ -245,6 +335,24 @@ fn tokenize(line: &str) -> Vec<&str> {
 }
 
 // --- Individual construct parsers ---
+//
+// Each function handles one construct keyword. They follow a common pattern:
+// 1. Validate the token count
+// 2. Extract arguments (name, type, value, etc.)
+// 3. Create or resolve symbols in the current package
+// 4. Build an Instruction and add it to the package
+//
+// The order of operations matters: we must extract data from `tree` (e.g.,
+// interning strings) BEFORE borrowing the current package mutably, to avoid
+// double-borrow issues with Rust's borrow checker.
+
+/// Parse a `packagetype` declaration.
+///
+/// Example: `packagetype _plain`
+///
+/// Package types are implicitly declared — we just validate the syntax.
+/// The C implementation auto-declares package types when they're first
+/// referenced, so we don't need to store them explicitly.
 
 fn parse_packagetype(
     _tree: &mut InterTree,
@@ -262,6 +370,13 @@ fn parse_packagetype(
     Ok(())
 }
 
+/// Parse a `primitive` declaration.
+///
+/// Example: `primitive !print val -> void`
+///
+/// Primitives are built-in operations. They're declared in the global
+/// scope and referenced by `inv` instructions. The signature (e.g.,
+/// `val val -> val`) is optional in textual Inter.
 fn parse_primitive(
     tree: &mut InterTree,
     tokens: &[&str],
@@ -283,6 +398,13 @@ fn parse_primitive(
     Ok(())
 }
 
+/// Parse a `package` declaration.
+///
+/// Example: `package main _plain`
+///
+/// Creates a new child package in the current package and pushes it onto
+/// the package stack. Subsequent lines at higher indentation will be
+/// parsed into this package.
 fn parse_package(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -321,6 +443,16 @@ fn parse_package(
     Ok(())
 }
 
+/// Parse a `constant` declaration.
+///
+/// Examples:
+/// - `constant lucky_number = 7`
+/// - `constant (K_number) C_death = -5`
+/// - `constant message = "hello"`
+///
+/// Constants are named values. The optional type marker in parentheses
+/// specifies the constant's type. The value is parsed as an Inter value
+/// pair (number, string, symbol reference, etc.).
 fn parse_constant(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -385,6 +517,16 @@ fn parse_constant(
     Ok(())
 }
 
+/// Parse a `typename` declaration.
+///
+/// Examples:
+/// - `typename K_number = int32`
+/// - `typename K_list_of_number = list of /main/K_number`
+/// - `typename K_piece <= K_object`  (subkind)
+///
+/// Typenames create type aliases. The `<=` syntax declares a subkind
+/// (a subtype relationship). The type on the right can be a base type,
+/// a compound type, or a reference to another typename.
 fn parse_typename(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -431,6 +573,14 @@ fn parse_typename(
     Ok(())
 }
 
+/// Parse a `variable` declaration.
+///
+/// Examples:
+/// - `variable (K_number) V_banana = 100`
+/// - `variable (K_colour) V_shade = I_red`
+///
+/// Variables are named storage locations. The type marker is required
+/// in well-formed Inter. The initial value is optional.
 fn parse_variable(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -492,6 +642,12 @@ fn parse_variable(
     Ok(())
 }
 
+/// Parse a `code` marker.
+///
+/// Example: `code`
+///
+/// The `code` construct marks the beginning of executable code within
+/// a `_code` package. It has no arguments.
 fn parse_code(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -502,6 +658,13 @@ fn parse_code(
     Ok(())
 }
 
+/// Parse an `inv` (invoke) instruction.
+///
+/// Example: `inv !print`
+///
+/// Invokes a primitive operation. The primitive must be declared in the
+/// global scope. Arguments to the primitive are child instructions at
+/// higher indentation (typically `val` instructions).
 fn parse_inv(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -532,6 +695,15 @@ fn parse_inv(
     Ok(())
 }
 
+/// Parse a `val` (value) instruction.
+///
+/// Examples:
+/// - `val 42`
+/// - `val "Hello, world!\n"`
+/// - `val (K_number) 17`
+///
+/// Pushes a literal value. The optional type marker specifies the type.
+/// This is the most common code-level construct.
 fn parse_val(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -562,6 +734,12 @@ fn parse_val(
     Ok(())
 }
 
+/// Parse an `instance` declaration.
+///
+/// Example: `instance (K_colour) I_green = 1`
+///
+/// Instances are named values of an enumerated kind. They're similar to
+/// constants but specifically for enum types.
 fn parse_instance(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -590,6 +768,12 @@ fn parse_instance(
     Ok(())
 }
 
+/// Parse a `property` declaration.
+///
+/// Example: `property (K_number) P_strength`
+///
+/// Properties are named attributes that can be attached to instances.
+/// The type marker specifies the property's value type.
 fn parse_property(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -618,6 +802,12 @@ fn parse_property(
     Ok(())
 }
 
+/// Parse a `propertyvalue` instruction.
+///
+/// Example: `propertyvalue P_strength of I_citrus = 20`
+///
+/// Sets the value of a property for a specific owner (instance or kind).
+/// The owner and property are resolved as symbols in the current package.
 fn parse_propertyvalue(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -652,6 +842,12 @@ fn parse_propertyvalue(
     Ok(())
 }
 
+/// Parse a `permission` declaration.
+///
+/// Example: `permission for K_odour to have P_strength`
+///
+/// Grants a kind permission to have a property. Without permission,
+/// propertyvalue assignments for that kind are invalid.
 fn parse_permission(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -663,6 +859,12 @@ fn parse_permission(
     Ok(())
 }
 
+/// Parse a `pragma` directive.
+///
+/// Example: `pragma target_I6 "$MAX_STATIC_DATA=180000"`
+///
+/// Pragmas are platform-specific tuning directives. They're passed
+/// through to the code generator.
 fn parse_pragma(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -686,6 +888,12 @@ fn parse_pragma(
     Ok(())
 }
 
+/// Parse an `insert` directive.
+///
+/// Example: `insert`
+///
+/// Marks a position where another package's contents will be inserted
+/// during linking. Used for the connectors mechanism.
 fn parse_insert(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -697,6 +905,14 @@ fn parse_insert(
     Ok(())
 }
 
+/// Parse a `plug` declaration.
+///
+/// Examples:
+/// - `plug my_symbol`
+/// - `plug my_symbol ~~> "/target/name"`
+///
+/// Plugs are symbols that need to be connected to external definitions
+/// during linking. The optional `~~>` syntax specifies the wiring target.
 fn parse_plug(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -734,6 +950,15 @@ fn parse_plug(
     Ok(())
 }
 
+/// Parse a `socket` declaration.
+///
+/// Examples:
+/// - `socket my_symbol`
+/// - `socket my_symbol ~~> "/target/name"`
+///
+/// Sockets are symbols offered for external connection. They're the
+/// counterpart to plugs. The optional `~~>` syntax specifies the
+/// wiring target.
 fn parse_socket(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -770,6 +995,11 @@ fn parse_socket(
 }
 
 /// Generic instruction parser for constructs we don't fully handle yet.
+///
+/// This is a fallback for code-level constructs like `assembly`, `cast`,
+/// `evaluation`, `ref`, `reference`, `splat`, and `label`. These are
+/// stored as instructions with their construct ID but without detailed
+/// field parsing. Full support will be added as needed.
 fn add_instruction(
     tree: &mut InterTree,
     state: &mut ReadState,
@@ -791,6 +1021,15 @@ fn add_instruction(
 
 // --- Helpers ---
 
+/// Navigate to the current package based on the parse state's path stack.
+///
+/// The path stack records the sequence of package names from root to
+/// current (e.g., `["main", "source_text"]`). This function walks the
+/// tree following that path.
+///
+/// Panics if the path doesn't match the tree structure — this indicates
+/// a bug in the parser's state management.
+
 fn get_current_package_mut<'a>(tree: &'a mut InterTree, state: &ReadState) -> &'a mut Package {
     let mut current = &mut tree.root;
     for name in &state.current_path {
@@ -799,6 +1038,14 @@ fn get_current_package_mut<'a>(tree: &'a mut InterTree, state: &ReadState) -> &'
     current
 }
 
+/// Resolve or create a symbol in the given package.
+///
+/// If the symbol doesn't exist, it's created with the given type.
+/// If it exists but has type [`SymbolType::Misc`] (undefined), its type
+/// is updated. Returns the symbol's ID.
+///
+/// This is used by construct parsers that reference symbols which may
+/// not have been declared yet (forward references).
 fn resolve_or_create_symbol(pkg: &mut Package, name: &str, stype: SymbolType) -> u32 {
     if !pkg.symbols.has_name(name) {
         pkg.symbols.create_symbol(name);
@@ -810,7 +1057,18 @@ fn resolve_or_create_symbol(pkg: &mut Package, name: &str, stype: SymbolType) ->
     sym.id
 }
 
-/// Parse a value literal from textual Inter.
+/// Parse a value literal from textual Inter syntax.
+///
+/// Handles all value formats:
+/// - Numbers: `42`, `-5`, `0x7f2a`, `0b1010`
+/// - Strings: `"hello"`, `"line\nbreak"`
+/// - Reals: `r"3.14159"`
+/// - Dictionary words: `dw"frogs"`, `dwp"frogs"`
+/// - Globs: `glob"SOME_I6_DRIVEL"`
+/// - Symbols: bare identifiers or URLs like `/main/K_number`
+/// - Undef: `!undef`
+///
+/// Strings are automatically interned in the tree's warehouse.
 fn parse_value_literal(
     tree: &mut InterTree,
     s: &str,
@@ -918,6 +1176,19 @@ fn parse_value_literal(
 // Forward reference resolution
 // ---------------------------------------------------------------------------
 
+/// Resolve forward references after parsing is complete.
+///
+/// During parsing, symbols referenced by URL before they're defined are
+/// temporarily wired to a name string. This pass walks the entire tree,
+/// finds those temporary wirings, and resolves them to actual symbol
+/// targets.
+///
+/// This is a two-phase process to avoid issues with the Rust borrow
+/// checker:
+/// 1. [`collect_resolutions`] walks the tree immutably to find all
+///    symbols that need resolution
+/// 2. [`apply_resolutions`] walks the tree mutably to apply the fixes
+
 fn resolve_forward_references(tree: &mut InterTree) -> Result<(), TextualError> {
     // Collect all resolutions needed, then apply them
     let resolutions = collect_resolutions(&tree.root, &[]);
@@ -967,6 +1238,10 @@ fn apply_resolutions(tree: &mut InterTree, resolutions: &[(Vec<String>, u32, Str
     }
 }
 
+/// Navigate to a package by path, returning a mutable reference.
+///
+/// The path is a sequence of package names from root (e.g.,
+/// `["main", "source_text"]`). Panics if any component is not found.
 fn navigate_package_mut<'a>(root: &'a mut Package, path: &[String]) -> &'a mut Package {
     let mut current = root;
     for name in path {
@@ -975,6 +1250,11 @@ fn navigate_package_mut<'a>(root: &'a mut Package, path: &[String]) -> &'a mut P
     current
 }
 
+/// Find a symbol by URL path (e.g., `/main/K_number`).
+///
+/// The URL is split into a package path and a symbol name. The package
+/// is navigated to, then the symbol is looked up by name.
+/// Returns `(symbol_id, table_resource_id)` if found.
 fn find_symbol_by_url(tree: &InterTree, url: &str) -> Option<(u32, u32)> {
     // Split URL into package path and symbol name
     let parts: Vec<&str> = url.split('/').filter(|p| !p.is_empty()).collect();
@@ -999,13 +1279,24 @@ fn find_symbol_by_url(tree: &InterTree, url: &str) -> Option<(u32, u32)> {
 // Writing
 // ---------------------------------------------------------------------------
 
-/// Write an InterTree as textual Inter.
+/// Write an [`InterTree`] as a textual Inter string.
+///
+/// This is the main entry point for generating `.intert` output. It
+/// traverses the tree recursively, writing each package's instructions
+/// and child packages with appropriate tab indentation.
+///
+/// The output is designed to be readable by the existing `inter` tool
+/// and by this crate's own [`read`] function (round-trip fidelity).
 pub fn write(tree: &InterTree) -> String {
     let mut out = String::new();
     write_package(tree, &tree.root, 0, &mut out);
     out
 }
 
+/// Write a single package and all its descendants.
+///
+/// Instructions are written first, then child packages in insertion order.
+/// Each level of nesting adds one tab of indentation.
 fn write_package(tree: &InterTree, pkg: &Package, depth: usize, out: &mut String) {
     let indent = "\t".repeat(depth);
 
@@ -1024,6 +1315,11 @@ fn write_package(tree: &InterTree, pkg: &Package, depth: usize, out: &mut String
     }
 }
 
+/// Write a single instruction in textual Inter format.
+///
+/// Each construct has its own formatting logic. For constructs we don't
+/// fully handle, we fall back to writing just the keyword. The output
+/// is designed to match the C implementation's textual Inter format.
 fn write_instruction(
     tree: &InterTree,
     pkg: &Package,

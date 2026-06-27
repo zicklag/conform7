@@ -1,6 +1,50 @@
 //! Binary Inter format reader and writer.
 //!
-//! Based on the `Inter in Binary Files` chapter of the bytecode module.
+//! Based on `Chapter 3/Inter in Binary Files.w` from the bytecode module.
+//!
+//! # The Binary Inter Format
+//!
+//! Binary Inter (`.interb`) is a compressed, fast-loading format for Inter
+//! programs. It's the primary storage format for precompiled kits and the
+//! preferred interchange format between tools.
+//!
+//! ## File Structure
+//!
+//! A binary Inter file has five blocks:
+//!
+//! 1. **Header** (20 bytes, uncompressed): magic number "intr", zero word,
+//!    and three version words (major, minor, patch)
+//! 2. **Annotations**: declares annotation types used in the file
+//! 3. **Resources**: strings, symbols tables, packages, and node lists,
+//!    each identified by a warehouse resource ID
+//! 4. **Symbol wirings**: cross-package symbol connections (`S1 ~~> S2`)
+//! 5. **Bytecode**: the actual instruction frames, each prefixed with
+//!    extent and package ID
+//!
+//! ## Word Compression
+//!
+//! After the header, all words are stored in a variable-length encoding
+//! similar to UTF-8 but optimized for Inter's value distribution:
+//!
+//! | Range | Bytes | Encoding |
+//! |-------|-------|----------|
+//! | 0x00000000-0x0000007F | 1 | `0xxxxxxx` |
+//! | 0x00000080-0x00003FFF | 2 | `10xxxxxx xxxxxxxx` |
+//! | 0x00004000-0x001FFFFF | 3 | `110xxxxx xxxxxxxx xxxxxxxx` |
+//! | 0x40000000-0x4000001E | 1 | `111xxxxx` (symbol IDs) |
+//! | 0x00200000-0x3FFFFFFF | 5 | `11111111 ...` (4 data bytes) |
+//! | 0x4000001F-0xFFFFFFFF | 5 | `11111111 ...` (4 data bytes) |
+//!
+//! The special 1-byte encoding for 0x40000000-0x4000001E is because
+//! symbol IDs start at `SYMBOL_BASE_VAL` (0x40000000), making the most
+//! common symbol references compress to a single byte.
+//!
+//! ## Current Status
+//!
+//! The binary reader and writer are partially implemented. The word
+//! compression, header, and resource block structures work correctly.
+//! Full tree reconstruction from binary (with correct package attachment
+//! and wiring resolution) is a work in progress.
 
 use crate::instruction::{ConstructId, Instruction};
 use crate::tree::{InterTree, Package, PackageType, SymbolType, SymbolsTable};
@@ -10,25 +54,33 @@ use std::io::{Read, Write};
 // Constants
 // ---------------------------------------------------------------------------
 
-/// The magic number at the start of binary Inter files: ASCII "intr".
+/// Magic number at the start of binary Inter files: ASCII "intr".
+/// This is the `INTER_SHIBBOLETH` constant in the C implementation.
 const INTER_SHIBBOLETH: u32 = 0x696E7472;
 
-/// Resource type codes.
+/// Resource type codes. These identify what kind of data a warehouse
+/// resource contains. Must match the C `*_IRSRC` constants.
 const TEXT_IRSRC: u32 = 1;
 const SYMBOLS_TABLE_IRSRC: u32 = 2;
 const NODE_LIST_IRSRC: u32 = 3;
 const PACKAGE_REF_IRSRC: u32 = 4;
 
-/// Sentinel for end of annotations list.
+/// Sentinel value marking the end of the annotations list.
 const INVALID_IANN: u32 = 0xFFFFFFFF;
 
-/// Symbol base value.
+/// Base value for symbol IDs. The special compression range
+/// 0x40000000-0x4000001E is reserved for the most common symbols.
 #[allow(dead_code)]
 const SYMBOL_BASE_VAL: u32 = 0x40000000;
 
 // ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------
+
+/// Errors that can occur when reading or writing binary Inter.
+///
+/// The C implementation uses `inter_error_message` and exits on error.
+/// We use a Rust enum to allow callers to handle errors gracefully.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinaryError {
@@ -55,7 +107,12 @@ impl std::error::Error for BinaryError {}
 // Word compression
 // ---------------------------------------------------------------------------
 
-/// Read a single compressed word from a reader.
+/// Read a single compressed word from a binary Inter stream.
+///
+/// Implements the variable-length decoding scheme described in the
+/// module documentation. Returns `IoError` on EOF or read failure.
+///
+/// This corresponds to `BinaryInter::read_word` in the C implementation.
 fn read_word<R: Read>(reader: &mut R) -> Result<u32, BinaryError> {
     let mut buf = [0u8; 1];
     reader.read_exact(&mut buf).map_err(|e| BinaryError::IoError(e.to_string()))?;
@@ -98,7 +155,12 @@ fn read_word<R: Read>(reader: &mut R) -> Result<u32, BinaryError> {
     }
 }
 
-/// Write a single compressed word to a writer.
+/// Write a single compressed word to a binary Inter stream.
+///
+/// Implements the variable-length encoding scheme. Chooses the most
+/// compact representation for the given value.
+///
+/// This corresponds to `BinaryInter::write_word` in the C implementation.
 fn write_word<W: Write>(writer: &mut W, val: u32) -> Result<(), BinaryError> {
     if val < 0x80 {
         writer.write_all(&[val as u8]).map_err(|e| BinaryError::IoError(e.to_string()))?;
@@ -128,7 +190,12 @@ fn write_word<W: Write>(writer: &mut W, val: u32) -> Result<(), BinaryError> {
     Ok(())
 }
 
-/// Read a text (length-prefixed sequence of character words).
+/// Read a length-prefixed text from a binary Inter stream.
+///
+/// Texts are stored as a length word followed by that many character
+/// words. This is not null-terminated — the length is explicit.
+///
+/// This corresponds to `BinaryInter::read_text` in the C implementation.
 fn read_text<R: Read>(reader: &mut R) -> Result<String, BinaryError> {
     let len = read_word(reader)? as usize;
     let mut chars = Vec::with_capacity(len);
@@ -142,7 +209,9 @@ fn read_text<R: Read>(reader: &mut R) -> Result<String, BinaryError> {
     Ok(chars.into_iter().collect())
 }
 
-/// Write a text (length-prefixed sequence of character words).
+/// Write a length-prefixed text to a binary Inter stream.
+///
+/// This corresponds to `BinaryInter::write_text` in the C implementation.
 fn write_text<W: Write>(writer: &mut W, text: &str) -> Result<(), BinaryError> {
     write_word(writer, text.len() as u32)?;
     for ch in text.chars() {
@@ -151,14 +220,19 @@ fn write_text<W: Write>(writer: &mut W, text: &str) -> Result<(), BinaryError> {
     Ok(())
 }
 
-/// Read a big-endian 32-bit int (uncompressed, for header).
+/// Read a big-endian 32-bit integer (uncompressed).
+///
+/// Used only for the file header. The rest of the file uses
+/// variable-length compressed words.
 fn read_int32_be<R: Read>(reader: &mut R) -> Result<u32, BinaryError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).map_err(|e| BinaryError::IoError(e.to_string()))?;
     Ok(u32::from_be_bytes(buf))
 }
 
-/// Write a big-endian 32-bit int (uncompressed, for header).
+/// Write a big-endian 32-bit integer (uncompressed).
+///
+/// Used only for the file header.
 fn write_int32_be<W: Write>(writer: &mut W, val: u32) -> Result<(), BinaryError> {
     writer.write_all(&val.to_be_bytes()).map_err(|e| BinaryError::IoError(e.to_string()))
 }
@@ -167,7 +241,16 @@ fn write_int32_be<W: Write>(writer: &mut W, val: u32) -> Result<(), BinaryError>
 // Reading
 // ---------------------------------------------------------------------------
 
-/// Read a binary Inter file into an InterTree.
+/// Read a binary Inter file into an [`InterTree`].
+///
+/// This is the main entry point for reading `.interb` files. It processes
+/// the five blocks (header, annotations, resources, wirings, bytecode)
+/// in order.
+///
+/// The `grid` array maps original warehouse IDs (from the file) to new
+/// IDs (in our tree). This is necessary because we can't control what
+/// IDs the original compiler assigned — we must remap them to our own
+/// ID space.
 pub fn read<R: Read>(reader: &mut R) -> Result<InterTree, BinaryError> {
     // --- Header ---
     let shibboleth = read_int32_be(reader)?;
@@ -442,7 +525,11 @@ fn read_bytecode<R: Read>(
 // Writing
 // ---------------------------------------------------------------------------
 
-/// Write an InterTree as binary Inter.
+/// Write an [`InterTree`] as a binary Inter file.
+///
+/// This is the main entry point for generating `.interb` output. It
+/// writes the five blocks in order: header, annotations, resources,
+/// symbol wirings, and bytecode.
 pub fn write<W: Write>(tree: &InterTree, writer: &mut W) -> Result<(), BinaryError> {
     // --- Header ---
     write_int32_be(writer, INTER_SHIBBOLETH)?;

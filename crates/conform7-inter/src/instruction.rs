@@ -1,50 +1,150 @@
 //! Inter instruction constructs — the ~25 instruction types in Inter bytecode.
 //!
-//! Based on the `Inter Constructs` chapter of the bytecode module.
+//! Based on `Chapter 3/Inter Constructs.w` from the bytecode module.
+//!
+//! # Overview
+//!
+//! Every node in an Inter tree is an **instruction** — a frame of `u32` words
+//! (the "bytecode") identified by a **construct ID** in the first word. There
+//! are about 25 different constructs, divided into three groups:
+//!
+//! 1. **Top-level constructs** (Chapter 4): `constant`, `variable`, `package`,
+//!    `typename`, `primitive`, `property`, `instance`, etc. These define the
+//!    structure and resources of the program.
+//!
+//! 2. **Code-level constructs** (Chapter 5): `inv`, `val`, `code`, `lab`,
+//!    `label`, `cast`, `assembly`, etc. These appear inside function bodies
+//!    and represent executable operations.
+//!
+//! 3. **Wiring constructs** (Chapter 6): `plug`, `socket`, `version`. These
+//!    manage cross-package and cross-tree symbol connections.
+//!
+//! # Instruction Frames
+//!
+//! Each instruction occupies a contiguous sequence of words called its
+//! **frame**. The first word is always the construct ID. The meaning of
+//! subsequent words depends on the construct:
+//!
+//! ```text
+//! CONSTANT_IST:  [ID, SYMBOL_ID, VALUE_FORMAT, VALUE_CONTENT]
+//! INV_IST:       [ID, PRIMITIVE_SYMBOL_ID]
+//! VAL_IST:       [ID, VALUE_FORMAT, VALUE_CONTENT]
+//! PACKAGE_IST:   [ID, PACKAGE_SYMBOL_ID, PACKAGE_TYPE]
+//! ```
+//!
+//! The C implementation stores these in a flat array (`P->W.instruction[i]`)
+//! and uses field indices to access specific words. We use a `Vec<u32>` with
+//! named accessor methods.
+//!
+//! # Construct ID Values
+//!
+//! These numeric IDs are part of the Inter specification and appear in binary
+//! Inter files. They must match the C implementation exactly. The gaps in
+//! numbering (e.g., 14 to 20) are intentional — they separate the three groups.
 
-/// Construct IDs for Inter instructions. Must match the C implementation.
+// ---------------------------------------------------------------------------
+// Construct ID
+// ---------------------------------------------------------------------------
+
+/// Identifies which kind of instruction a node represents.
+///
+/// The numeric values are stored in binary Inter files and must match the
+/// C implementation in `Inter Constructs.w` exactly. The values are grouped:
+///
+/// - 0: Invalid (sentinel)
+/// - 1-14: Top-level constructs (Chapter 4)
+/// - 20-31: Code-level constructs (Chapter 5)
+/// - 40-42: Wiring constructs (Chapter 6)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum ConstructId {
+    /// Sentinel value for unknown/corrupt instructions.
     Invalid = 0,
 
-    // Chapter 4: Top-level constructs
+    // -- Chapter 4: Top-level constructs (define program structure) --
+
+    /// A comment. No semantic effect; used for human-readable annotations.
+    /// Written as `#` in textual Inter.
     Comment = 1,
-    Constant,
-    Instance,
-    Insert,
-    Nop,
-    Package,
-    Packagetype,
-    Permission,
-    Pragma,
-    Primitive,
-    Property,
-    Propertyvalue,
-    Typename,
-    Variable,
+    /// Defines a named constant. Frame: `[ID, SYMBOL_ID, VALUE_FORMAT, VALUE_CONTENT]`.
+    Constant = 2,
+    /// Defines a named instance of a kind. Frame: `[ID, SYMBOL_ID, KIND_TID, VALUE]`.
+    Instance = 3,
+    /// Inserts the contents of another package at this point. Used for linking.
+    Insert = 4,
+    /// No operation. Does nothing; used as a placeholder.
+    Nop = 5,
+    /// Defines a package (namespace). Frame: `[ID, SYMBOL_ID, PACKAGE_TYPE]`.
+    /// Packages can contain other packages and instructions.
+    Package = 6,
+    /// Declares a package type (e.g., `_plain`, `_code`). Must appear at the
+    /// root level before the type is used.
+    Packagetype = 7,
+    /// Grants permission for a kind to have a property.
+    Permission = 8,
+    /// A compiler pragma — platform-specific tuning. Frame: `[ID, TARGET_STRING_ID]`.
+    Pragma = 9,
+    /// Declares a primitive operation (e.g., `!print`, `!add`). Must appear at
+    /// the root level. Frame: `[ID, SYMBOL_ID, SIGNATURE...]`.
+    Primitive = 10,
+    /// Defines a named property. Frame: `[ID, SYMBOL_ID, VALUE_TYPE]`.
+    Property = 11,
+    /// Sets the value of a property for an owner. Frame: `[ID, OWNER_ID, PROPERTY_ID, VALUE]`.
+    Propertyvalue = 12,
+    /// Declares a named type (type alias). Frame: `[ID, SYMBOL_ID, TYPE]`.
+    /// The type can be a base type or a compound type.
+    Typename = 13,
+    /// Defines a named variable. Frame: `[ID, SYMBOL_ID, TYPE, INITIAL_VALUE?]`.
+    Variable = 14,
 
-    // Chapter 5: Code-level constructs
+    // -- Chapter 5: Code-level constructs (appear inside function bodies) --
+
+    /// Inline assembly (target-specific code). Rarely used.
     Assembly = 20,
-    Cast,
-    Code,
-    Evaluation,
-    Inv,
-    Lab,
-    Label,
-    Local,
-    Ref,
-    Reference,
-    Splat,
-    Val,
+    /// Type cast: converts a value from one type to another.
+    Cast = 21,
+    /// Marks the beginning of executable code within a `_code` package.
+    Code = 22,
+    /// Evaluates an expression and discards the result. Used for side effects.
+    Evaluation = 23,
+    /// Invokes a primitive operation. Frame: `[ID, PRIMITIVE_SYMBOL_ID]`.
+    /// Children of this node are the arguments to the primitive.
+    Inv = 24,
+    /// References a label (used with `!jump`). Frame: `[ID, LABEL_SYMBOL_ID]`.
+    Lab = 25,
+    /// Defines a label (target for jumps). Frame: `[ID, LABEL_SYMBOL_ID]`.
+    Label = 26,
+    /// Declares a local variable within a function body.
+    Local = 27,
+    /// References a variable or constant by symbol.
+    Ref = 28,
+    /// References a value by symbol (similar to `ref`).
+    Reference = 29,
+    /// A "splat" — raw Inform 6 code embedded inline. Rarely used.
+    Splat = 30,
+    /// A literal value. Frame: `[ID, VALUE_FORMAT, VALUE_CONTENT]`.
+    /// This is the most common code-level construct.
+    Val = 31,
 
-    // Chapter 6: Wiring constructs
+    // -- Chapter 6: Wiring constructs (cross-package connections) --
+
+    /// A plug — a symbol that needs to be connected to an external definition.
+    /// Used during linking to resolve cross-tree references.
     Plug = 40,
-    Socket,
-    Version,
+    /// A socket — a symbol offered for external connection. The counterpart
+    /// to a plug.
+    Socket = 41,
+    /// Records the Inter specification version used to create the file.
+    /// This is a pseudo-construct: it affects the file, not the program.
+    Version = 42,
 }
 
 impl ConstructId {
+    /// Convert from the raw u32 value used in binary Inter files.
+    ///
+    /// Returns `None` for values in the gaps between groups or beyond the
+    /// known range. This would indicate a corrupted file or a newer Inter
+    /// version with additional constructs.
     pub fn from_u32(v: u32) -> Option<Self> {
         match v {
             0 => Some(Self::Invalid),
@@ -81,7 +181,10 @@ impl ConstructId {
         }
     }
 
-    /// The textual keyword for this construct.
+    /// The keyword used in textual Inter for this construct.
+    ///
+    /// For example, `Constant` → `"constant"`, `Inv` → `"inv"`.
+    /// The `Comment` construct uses `"#"` as its keyword.
     pub fn keyword(&self) -> &'static str {
         match self {
             Self::Invalid => "invalid",
@@ -117,6 +220,11 @@ impl ConstructId {
         }
     }
 
+    /// Look up a construct by its textual Inter keyword.
+    ///
+    /// Used when parsing `.intert` files. The lookup is O(n) but since there
+    /// are only ~25 constructs and textual parsing is not performance-critical,
+    /// this is fine.
     pub fn from_keyword(kw: &str) -> Option<Self> {
         match kw {
             "#" => Some(Self::Comment),
@@ -153,38 +261,84 @@ impl ConstructId {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Instruction
+// ---------------------------------------------------------------------------
+
 /// A single Inter instruction — a node in the Inter tree.
 ///
-/// Each instruction has a construct ID and a frame of words (the bytecode).
-/// The first word of the frame is always the construct ID.
+/// Each instruction has a [`construct`] type and a **frame** of `u32` words.
+/// The first word of the frame is always the construct ID. Subsequent words
+/// have construct-specific meanings (symbol IDs, value pairs, type references,
+/// etc.).
+///
+/// This corresponds to `inter_tree_node` in the C implementation, though
+/// our representation is simpler: we store the frame as a `Vec<u32>` rather
+/// than using the C approach of a separately-allocated array with extent
+/// tracking.
+///
+/// # Frame Layout
+///
+/// The frame always has the construct ID at index 0. Use [`field`] to access
+/// words by their logical field index (0 = construct ID, 1 = first data word,
+/// etc.).
+///
+/// ```text
+/// CONSTANT_IST frame:
+///   [0] = 2 (CONSTANT_IST)
+///   [1] = symbol ID of the constant
+///   [2] = value format (e.g., DECIMAL_IVAL)
+///   [3] = value content (e.g., 42)
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instruction {
+    /// Which kind of instruction this is.
     pub construct: ConstructId,
-    /// The full frame of words, including the construct ID as word 0.
+    /// The full frame of words. `words[0]` is always the construct ID.
+    /// The remaining words have construct-specific meanings.
     pub words: Vec<u32>,
 }
 
 impl Instruction {
+    /// Create a new instruction with just the construct ID.
+    ///
+    /// The frame is initialized with the construct ID as word 0.
+    /// Additional words can be set with [`set_field`].
     pub fn new(construct: ConstructId) -> Self {
         Self { construct, words: vec![construct as u32] }
     }
 
+    /// Create an instruction with a pre-built frame.
+    ///
+    /// The construct ID is automatically inserted as word 0. The provided
+    /// `words` should contain the data words only (without the construct ID).
     pub fn with_words(construct: ConstructId, mut words: Vec<u32>) -> Self {
         words.insert(0, construct as u32);
         Self { construct, words }
     }
 
-    /// The extent (total number of words) of this instruction.
+    /// The total number of words in this instruction's frame, including
+    /// the construct ID word.
+    ///
+    /// This corresponds to `P->W.extent` in the C implementation.
     pub fn extent(&self) -> usize {
         self.words.len()
     }
 
-    /// Get a word from the frame by field index (0 = construct ID).
+    /// Get a word from the frame by field index.
+    ///
+    /// Field 0 is the construct ID. Field 1 is the first data word, etc.
+    /// Returns `None` if the index is out of bounds.
     pub fn field(&self, index: usize) -> Option<u32> {
         self.words.get(index).copied()
     }
 
-    /// Set a word in the frame.
+    /// Set a word in the frame, growing the frame if necessary.
+    ///
+    /// If `index` is beyond the current frame length, the frame is extended
+    /// with zeros to accommodate it. This matches the flexible nature of
+    /// Inter instruction frames, where different constructs have different
+    /// numbers of fields.
     pub fn set_field(&mut self, index: usize, value: u32) {
         if index >= self.words.len() {
             self.words.resize(index + 1, 0);

@@ -1,89 +1,116 @@
-# Plan 1: Textual Inter Compatibility
+# Plan 2: I7 Lexer Foundation
 
-**Status**: Textual Inter complete; binary reader deferred
+**Status**: In progress
 **Started**: 2026-06-27
-**Target**: 1-2 weeks
+**Target**: 3-5 days
 
 ## Goal
 
-Implement the `conform7-inter` crate — a Rust library that can read and write
-Inter files (textual `.intert` format) with 100% fidelity to the existing
-`inter` tool.
+Create the `conform7-syntax` crate with a lexer that tokenizes Inform 7 source
+text into a flat sequence of tokens. This is the first piece of the I7
+frontend and a prerequisite for all subsequent parsing, semantic analysis, and
+LSP work.
 
-This is the compatibility linchpin: the Inter format is the handoff between
-our Rust compiler and the existing C toolchain. If we can't produce
-byte-identical Inter, nothing else matters.
+## Why this is the right next step
 
-## Why Textual First
+The `conform7-inter` crate is complete — it can read, write, and round-trip
+textual Inter with 100% fidelity. The next logical piece is the I7 frontend.
 
-- **Testable in complete isolation.** No parser, no world model, no Salsa.
-  Just construct Inter trees in memory and write them out.
-- **The existing `inter` tool is our oracle.** We can verify correctness by
-  round-tripping through it.
-- **Unlocks all future testing.** Once this works, every subsequent piece
-  (parser, world model, etc.) can be tested by comparing its Inter output to
-  what `inform7` produces for the same input.
+The lexer is the smallest independently testable piece of that frontend:
+- It has a well-defined input (source text) and output (token stream).
+- The C reference (`services/words-module/Chapter 3/Lexer.w`) is clear and
+  self-contained.
+- It can be built and tested without any parser, world model, or Salsa
+  infrastructure.
+- It unblocks all subsequent work on the parser and LSP.
 
-## Deliverables
+## What we build
 
-### Crate: `conform7-inter`
+### Crate: `conform7-syntax`
 
 ```
-crates/conform7-inter/
+crates/conform7-syntax/
 ├── Cargo.toml
-├── src/
-│   ├── lib.rs           # Public API, re-exports
-│   ├── tree.rs          # InterTree, Package, SymbolsTable, Symbol
-│   ├── instruction.rs   # Instruction constructors and types
-│   ├── value.rs         # Inter value pairs (two-word values)
-│   ├── types.rs         # Inter type system (int32, int16, text, enum, struct, ...)
-│   └── textual.rs       # Textual .intert reader and writer
-└── tests/
-    ├── roundtrip_tests.rs    # Read .intert → write → read → assert match
-    ├── inter_compat_tests.rs # Cross-validate with the `inter` tool
-    └── fixtures/             # Test fixtures
+└── src/
+    ├── lib.rs           # Public API, re-exports
+    ├── syntax_kind.rs   # SyntaxKind enum for all I7 token/node types
+    ├── lexer.rs         # I7 source lexer (tokenizer)
+    └── token.rs         # Token type with source location
 ```
 
 ### Capabilities
 
-1. ✅ **In-memory Inter tree** — data structures for packages, symbols,
-   instructions, values, and types
-2. ✅ **Textual Inter reader** — parse `.intert` files into the in-memory tree
-3. ✅ **Textual Inter writer** — write the in-memory tree as `.intert` text
-4. ✅ **Round-trip fidelity** — textual read → write → read produces identical
-   trees; cross-validated against the `inter` tool
+1. **`SyntaxKind` enum** — Covers all I7 token types:
+   - `Word` — any natural language word (case-preserved)
+   - `QuotedString` — `"text"` (including text substitutions inside)
+   - `I6Bracketed` — `(- ... -)` embedded Inform 6 code
+   - `TextSubstitution` — `[...]` inside quoted strings
+   - `Comment` — `[...]` outside quoted strings
+   - `HeadingMarker` — Volume, Book, Part, Chapter, Section
+   - `Punctuation` — `. , : ; ? ! ( ) { }`
+   - `ParagraphBreak` — blank line between paragraphs
+   - `Number` — integer literal
+   - `Whitespace` — spaces, tabs (preserved for round-trip)
+   - `Newline` — line endings
+   - `Error` — malformed input
 
-## Test Strategy
+2. **Lexer** — State machine that reads I7 source text and produces tokens:
+   - Handles quoted strings with text substitutions
+   - Handles I6 escape blocks `(- ... -)`
+   - Handles comments `[...]` outside strings
+   - Handles text substitutions `[...]` inside strings
+   - Handles paragraph breaks (blank lines)
+   - Handles punctuation marks
+   - Handles regular words (case-preserved)
+   - Tracks source locations (file, line, column)
+   - Reports errors for malformed input (unclosed quotes, etc.)
 
-### Unit tests
-- Core data structures (tree, symbols, values, instructions, types).
-- Text escaping round-trip.
+3. **Tests** — Comprehensive test suite:
+   - Basic word tokenization
+   - Quoted strings with escapes
+   - Text substitutions inside strings
+   - I6 escape blocks
+   - Comments
+   - Paragraph breaks
+   - Punctuation
+   - Error cases (unclosed quotes, unclosed I6 blocks)
+   - Real I7 source snippets from the Standard Rules
 
-### Integration tests
+## Reference implementation
 
-- `roundtrip_tests.rs` — read every bundled `.intert` fixture, write it
-  back, and parse the result; assert the final tree matches the first.
+The C lexer is in `services/words-module/Chapter 3/Lexer.w`. Key design points:
 
-- `inter_compat_tests.rs` — feed our re-serialized text to the official
-  `inter` tool and verify it parses without errors. This is the strongest
-  practical oracle we have without building the C toolchain.
+- Words are numbered 0, 1, 2, ... in order of reading.
+- Text references throughout I7's data structures are `(w1, w2)` pairs.
+- The lexer is a simple state machine, not a parser combinator.
+- Case is preserved but the lexer notes whether a word starts with uppercase.
+- Paragraph breaks (blank lines) are significant — they end sentences.
+- Comments `[...]` are stripped (not stored as words).
+- I6 escape blocks `(- ... -)` are stored as single "words" with the full text.
 
-## Success Criteria
+Our Rust lexer follows the same logic but produces a `Token` stream instead of
+numbered words, and preserves comments for round-trip fidelity (matching the
+approach we took in `conform7-inter`).
 
-- [x] All bundled `.intert` fixtures round-trip through our textual
-      reader/writer with identical output.
-- [x] All bundled `.intert` fixtures (except `misc.intert`) are accepted by
-      the existing `inter` tool after re-serialization.
-- [x] Programmatic construction of Hello World produces correct output.
-- [x] All tests pass on CI.
+## Out of scope
 
-## Out of Scope
+- **Rowan CST/AST integration** — comes after the lexer is stable.
+- **Chumsky parser** — comes in the next plan.
+- **Salsa database** — comes when we have ASTs to query.
+- **Heading parsing** — detecting headings is a parser-level concern
+  (though the lexer provides the `HeadingMarker` token type).
+- **Sentence classification** — comes in the parser.
+- **I6 sub-parser** — `(- ... -)` blocks will be stored as raw text for now.
 
-- Binary Inter reader/writer (deferred; the core pipeline emits textual Inter
-  and hands off to the existing `inter` tool)
-- Salsa integration (comes in the compiler driver)
-- I7 parsing (comes in `conform7-syntax`)
-- World model (comes in `conform7-semantics`)
-- LSP (comes in `conform7-lsp`)
-- Inter pipeline/optimization (handled by existing `inter` tool)
-- Code generation to I6/C (handled by existing `inter` tool)
+## Success criteria
+
+- [x] `SyntaxKind` enum covers all I7 token types.
+- [x] Lexer correctly tokenizes basic I7 source (words, strings, punctuation).
+- [x] Lexer handles quoted strings with text substitutions.
+- [x] Lexer handles I6 escape blocks `(- ... -)`.
+- [x] Lexer handles comments `[...]` outside strings.
+- [x] Lexer handles paragraph breaks.
+- [x] Lexer reports errors for malformed input.
+- [x] Lexer tokenizes real I7 source snippets (from Standard Rules).
+- [x] All tests pass.
+- [x] `cargo clippy --all-targets` is clean.

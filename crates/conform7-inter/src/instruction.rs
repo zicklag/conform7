@@ -302,8 +302,14 @@ pub struct Instruction {
     /// The full frame of words. `words[0]` is always the construct ID.
     /// The remaining words have construct-specific meanings.
     pub words: Vec<u32>,
-    /// Nesting depth within the package. Used for textual Inter indentation.
-    /// 0 = top-level, 1 = inside a code block, 2 = inside an inv, etc.
+    /// Nesting depth within the package. Used for textual Inter output (indentation).
+    /// 0 = top-level in the package. Higher values mean deeper nesting
+    /// (e.g., a `val` inside an `inv` inside a `code` block).
+    ///
+    /// Note: this records the *textual indentation* of the instruction
+    /// relative to its containing package, not the structural depth in the
+    /// Inter tree. For binary Inter, structural depth would be derived
+    /// from the actual parent-child relationships, not this field.
     pub depth: usize,
     /// Optional type marker text (interned string ID) written before the
     /// name/value in textual Inter. Used for constructs like

@@ -367,6 +367,7 @@ impl InterType {
     /// - `description of X`
     /// - `rulebook of X`
     /// - `relation of X to Y`
+    /// - `function A B -> C` (and similarly `rule A -> B`)
     pub fn to_text(&self) -> String {
         if let Some(ref name) = self.type_name {
             return name.clone();
@@ -375,20 +376,54 @@ impl InterType {
             return self.constructor.keyword().to_string();
         }
         match self.constructor {
-            TypeConstructor::List => format!("list of {}", self.operands[0].to_text()),
-            TypeConstructor::Activity => format!("activity on {}", self.operands[0].to_text()),
-            TypeConstructor::Column => format!("column of {}", self.operands[0].to_text()),
-            TypeConstructor::Table => format!("table of {}", self.operands[0].to_text()),
-            TypeConstructor::Description => {
-                format!("description of {}", self.operands[0].to_text())
+            TypeConstructor::List => {
+                format!(
+                    "list of {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
             }
-            TypeConstructor::Rulebook => format!("rulebook of {}", self.operands[0].to_text()),
+            TypeConstructor::Activity => {
+                format!(
+                    "activity on {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
+            }
+            TypeConstructor::Column => {
+                format!(
+                    "column of {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
+            }
+            TypeConstructor::Table => {
+                format!(
+                    "table of {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
+            }
+            TypeConstructor::Description => {
+                format!(
+                    "description of {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
+            }
+            TypeConstructor::Rulebook => {
+                format!(
+                    "rulebook of {}",
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default()
+                )
+            }
             TypeConstructor::Relation => {
                 format!(
                     "relation of {} to {}",
-                    self.operands[0].to_text(),
-                    self.operands[1].to_text()
+                    self.operands.first().map(|t| t.to_text()).unwrap_or_default(),
+                    self.operands.get(1).map(|t| t.to_text()).unwrap_or_default()
                 )
+            }
+            TypeConstructor::Function | TypeConstructor::Rule if self.operands.len() >= 2 => {
+                let args = &self.operands[..self.operands.len() - 1];
+                let ret = &self.operands[self.operands.len() - 1];
+                let args_str = args.iter().map(|t| t.to_text()).collect::<Vec<_>>().join(" ");
+                format!("{} {} -> {}", self.constructor.keyword(), args_str, ret.to_text())
             }
             _ => {
                 let mut s = self.constructor.keyword().to_string();
@@ -518,6 +553,21 @@ mod tests {
             type_name: None,
         };
         assert_eq!(relation.to_text(), "relation of K_player to K_room");
+
+        // Function and rule types use -> between arguments and return type
+        let func = InterType {
+            constructor: TypeConstructor::Function,
+            operands: vec![InterType::int32(), InterType::text(), InterType::void()],
+            type_name: None,
+        };
+        assert_eq!(func.to_text(), "function int32 text -> void");
+
+        let rule = InterType {
+            constructor: TypeConstructor::Rule,
+            operands: vec![InterType::int32(), InterType::text()],
+            type_name: None,
+        };
+        assert_eq!(rule.to_text(), "rule int32 -> text");
     }
 
     #[test]

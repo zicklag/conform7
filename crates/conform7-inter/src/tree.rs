@@ -535,11 +535,11 @@ impl Package {
     ///
     /// # Panics
     ///
-    /// Panics in debug mode if a child with the same name already exists.
-    /// Duplicate package names are invalid in Inter and indicate a bug.
+    /// Panics if a child with the same name already exists. Duplicate
+    /// package names are invalid in Inter and indicate a bug.
     pub fn add_child(&mut self, child: Package) {
         let name = child.name.clone();
-        debug_assert!(
+        assert!(
             !self.children.contains_key(&name),
             "duplicate child package name: {}",
             name
@@ -885,5 +885,26 @@ mod tests {
         let children: Vec<&Package> = pkg.children_iter().collect();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "child");
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate child package name")]
+    fn test_duplicate_child_name_panics() {
+        let counter = Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE));
+        let mut pkg = Package::new(1, "test".to_string(), PackageType::Plain, counter);
+        let child1 = Package::new(
+            2,
+            "child".to_string(),
+            PackageType::Code,
+            Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE + 10)),
+        );
+        let child2 = Package::new(
+            3,
+            "child".to_string(),
+            PackageType::Code,
+            Rc::new(Cell::new(SymbolsTable::SYMBOL_BASE + 20)),
+        );
+        pkg.add_child(child1);
+        pkg.add_child(child2);
     }
 }

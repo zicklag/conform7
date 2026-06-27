@@ -333,14 +333,80 @@ fn split_annotations(line: &str) -> (&str, Vec<(String, String)>) {
 
 fn parse_annotation_string(s: &str) -> Vec<(String, String)> {
     let mut result = Vec::new();
-    for part in s.split_whitespace() {
-        if let Some(eq_pos) = part.find('=') {
-            let key = &part[..eq_pos];
-            let val = &part[eq_pos + 1..];
-            result.push((key.to_string(), val.to_string()));
-        } else {
-            result.push((part.to_string(), String::new()));
+    let mut chars = s.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if c.is_whitespace() {
+            continue;
         }
+        // Read the key until '=' or whitespace
+        let key_start = chars.peek().map(|(i, _)| *i).unwrap_or(s.len()).saturating_sub(1);
+        let mut key_end = key_start + 1;
+        let mut has_eq = false;
+        while let Some((i, c)) = chars.peek() {
+            if *c == '=' {
+                has_eq = true;
+                key_end = *i;
+                chars.next(); // consume '='
+                break;
+            }
+            if c.is_whitespace() {
+                key_end = *i;
+                break;
+            }
+            key_end = *i + 1;
+            chars.next();
+        }
+        let key = s[key_start..key_end].trim().to_string();
+        if key.is_empty() {
+            break;
+        }
+
+        let value = if has_eq {
+            // Read value, respecting surrounding quotes
+            if let Some((start, '"')) = chars.peek() {
+                let val_start = *start + 1;
+                chars.next(); // consume opening quote
+                let mut val_end = val_start;
+                let mut in_escape = false;
+                while let Some((i, c)) = chars.peek() {
+                    if in_escape {
+                        in_escape = false;
+                        val_end = *i + 1;
+                        chars.next();
+                        continue;
+                    }
+                    if *c == '\\' {
+                        in_escape = true;
+                        val_end = *i + 1;
+                        chars.next();
+                        continue;
+                    }
+                    if *c == '"' {
+                        val_end = *i;
+                        chars.next(); // consume closing quote
+                        break;
+                    }
+                    val_end = *i + 1;
+                    chars.next();
+                }
+                s[val_start..val_end].to_string()
+            } else {
+                let val_start = chars.peek().map(|(i, _)| *i).unwrap_or(s.len());
+                let mut val_end = val_start;
+                while let Some((i, c)) = chars.peek() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    val_end = *i + 1;
+                    chars.next();
+                }
+                s[val_start..val_end].to_string()
+            }
+        } else {
+            String::new()
+        };
+
+        result.push((key, value));
     }
     result
 }
@@ -2411,6 +2477,16 @@ package main _plain
         let (content, annotations) = split_annotations(r#"constant x = "foo __bar""#);
         assert_eq!(content, r#"constant x = "foo __bar""#);
         assert_eq!(annotations.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_annotation_quoted_value_with_spaces() {
+        let annotations = parse_annotation_string(r#"__text="hello world" __flag"#);
+        assert_eq!(annotations.len(), 2);
+        assert_eq!(annotations[0].0, "__text");
+        assert_eq!(annotations[0].1, "hello world");
+        assert_eq!(annotations[1].0, "__flag");
+        assert_eq!(annotations[1].1, "");
     }
 
     // --- Negative tests ---

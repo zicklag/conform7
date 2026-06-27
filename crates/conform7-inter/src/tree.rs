@@ -255,6 +255,13 @@ pub struct SymbolsTable {
     /// Next available symbol ID. All tables share a single counter so that
     /// symbol IDs are globally unique across the tree.
     counter: Rc<Cell<u32>>,
+
+    /// Counter for deterministic internal names such as `__gen_ref_N`.
+    /// These names are used for synthetic wiring symbols created during
+    /// textual Inter parsing and are resolved away before output, but
+    /// using a stable counter makes them deterministic and easier to
+    /// test.
+    next_internal_name: Cell<u32>,
 }
 
 impl SymbolsTable {
@@ -277,6 +284,7 @@ impl SymbolsTable {
             symbols: HashMap::new(),
             by_name: HashMap::new(),
             counter,
+            next_internal_name: Cell::new(0),
         }
     }
 
@@ -307,6 +315,17 @@ impl SymbolsTable {
         self.symbols.insert(id, sym);
         self.by_name.insert(name.to_string(), id);
         self.symbols.get_mut(&id).unwrap()
+    }
+
+    /// Allocate a deterministic internal name counter for synthetic symbols.
+    ///
+    /// Used for names like `__gen_ref_N`, `__sym_ref_N`, and `__inv_ref_N`
+    /// that are created during textual Inter parsing. The counter is local to
+    /// this table and is independent of the symbol ID counter.
+    pub fn next_internal_name(&self) -> u32 {
+        let n = self.next_internal_name.get();
+        self.next_internal_name.set(n + 1);
+        n
     }
 
     /// Return the next symbol ID that would be assigned.

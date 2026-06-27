@@ -215,7 +215,10 @@ references instead of silently leaving `wired_to_name` set.
 
 - Binary Inter reader/writer (still deferred).
 - Full construct level/permission validation (`tree_lint` equivalent).
-- Annotation storage and round-trip.
+- Annotation **writer** — annotations are parsed and stored on `Instruction`
+  but the writer does not emit them yet. This means annotations are preserved
+  in memory but lost on re-serialization. Adding writer emission is the next
+  step for full annotation round-trip.
 - I6 numeric notation (`$7f`, `$$101`) and I6 real notation (`$+3.1415`).
 - Semantic type checking or cross-referencing beyond what is needed for I/O.
 

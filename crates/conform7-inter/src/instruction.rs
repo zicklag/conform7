@@ -360,3 +360,132 @@ impl Instruction {
         self.words[index] = value;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_construct_id_keyword_roundtrip() {
+        // Every construct should round-trip through keyword and back
+        let constructs = [
+            ConstructId::Invalid,
+            ConstructId::Comment,
+            ConstructId::Constant,
+            ConstructId::Instance,
+            ConstructId::Insert,
+            ConstructId::Nop,
+            ConstructId::Package,
+            ConstructId::Packagetype,
+            ConstructId::Permission,
+            ConstructId::Pragma,
+            ConstructId::Primitive,
+            ConstructId::Property,
+            ConstructId::Propertyvalue,
+            ConstructId::Typename,
+            ConstructId::Variable,
+            ConstructId::Assembly,
+            ConstructId::Cast,
+            ConstructId::Code,
+            ConstructId::Evaluation,
+            ConstructId::Inv,
+            ConstructId::Lab,
+            ConstructId::Label,
+            ConstructId::Local,
+            ConstructId::Ref,
+            ConstructId::Reference,
+            ConstructId::Splat,
+            ConstructId::Val,
+            ConstructId::Plug,
+            ConstructId::Socket,
+            ConstructId::Version,
+        ];
+        for &c in &constructs {
+            let kw = c.keyword();
+            let c2 = ConstructId::from_keyword(kw).unwrap_or(ConstructId::Invalid);
+            assert_eq!(c, c2, "keyword '{}' should round-trip for {:?}", kw, c);
+        }
+    }
+
+    #[test]
+    fn test_construct_id_u32_roundtrip() {
+        let constructs = [
+            (0u32, ConstructId::Invalid),
+            (1, ConstructId::Comment),
+            (2, ConstructId::Constant),
+            (3, ConstructId::Instance),
+            (4, ConstructId::Insert),
+            (5, ConstructId::Nop),
+            (6, ConstructId::Package),
+            (7, ConstructId::Packagetype),
+            (8, ConstructId::Permission),
+            (9, ConstructId::Pragma),
+            (10, ConstructId::Primitive),
+            (11, ConstructId::Property),
+            (12, ConstructId::Propertyvalue),
+            (13, ConstructId::Typename),
+            (14, ConstructId::Variable),
+            (20, ConstructId::Assembly),
+            (21, ConstructId::Cast),
+            (22, ConstructId::Code),
+            (23, ConstructId::Evaluation),
+            (24, ConstructId::Inv),
+            (25, ConstructId::Lab),
+            (26, ConstructId::Label),
+            (27, ConstructId::Local),
+            (28, ConstructId::Ref),
+            (29, ConstructId::Reference),
+            (30, ConstructId::Splat),
+            (31, ConstructId::Val),
+            (40, ConstructId::Plug),
+            (41, ConstructId::Socket),
+            (42, ConstructId::Version),
+        ];
+        for &(val, expected) in &constructs {
+            let c = ConstructId::from_u32(val).unwrap();
+            assert_eq!(c, expected, "u32 {} should map to {:?}", val, expected);
+            assert_eq!(c as u32, val, "{:?} should map back to u32 {}", c, val);
+        }
+    }
+
+    #[test]
+    fn test_instruction_frame() {
+        let mut instr = Instruction::new(ConstructId::Constant);
+        assert_eq!(instr.extent(), 1);
+        assert_eq!(instr.field(0), Some(ConstructId::Constant as u32));
+
+        instr.set_field(1, 0x40000001); // symbol ID
+        instr.set_field(2, 0x10000);    // value format
+        instr.set_field(3, 42);          // value content
+        assert_eq!(instr.extent(), 4);
+        assert_eq!(instr.field(1), Some(0x40000001));
+        assert_eq!(instr.field(2), Some(0x10000));
+        assert_eq!(instr.field(3), Some(42));
+    }
+
+    #[test]
+    fn test_instruction_with_words() {
+        let instr = Instruction::with_words(ConstructId::Inv, vec![0x40000001]);
+        assert_eq!(instr.extent(), 2);
+        assert_eq!(instr.field(0), Some(ConstructId::Inv as u32));
+        assert_eq!(instr.field(1), Some(0x40000001));
+    }
+
+    #[test]
+    fn test_instruction_depth() {
+        let mut instr = Instruction::new(ConstructId::Code);
+        assert_eq!(instr.depth, 0);
+        instr.depth = 2;
+        assert_eq!(instr.depth, 2);
+    }
+
+    #[test]
+    fn test_unknown_construct() {
+        assert!(ConstructId::from_u32(99).is_none());
+        assert!(ConstructId::from_keyword("nonexistent").is_none());
+    }
+}

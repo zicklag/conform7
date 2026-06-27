@@ -212,6 +212,21 @@ pub struct WiringTarget {
 /// are in a range that compresses well in the binary format (the
 /// compression scheme has a special short encoding for values in
 /// `0x40000000..0x4000001F`).
+///
+/// ## Known Divergence from the C Reference
+///
+/// In the C implementation, each symbols table has its own independent
+/// ID space: symbol IDs are *locally* unique within a table, and a symbol
+/// is globally identified by the pair `(table_resource_id, symbol_id)`.
+///
+/// In our implementation, all tables share a single global counter, so
+/// symbol IDs are *globally* unique across the entire tree. This
+/// simplifies lookup (a raw ID uniquely identifies a symbol without
+/// needing to know which table it belongs to) but means our symbol IDs
+/// will differ from the C implementation's for the same program. This
+/// is a deliberate simplification that does not affect textual Inter
+/// round-trip fidelity, but would need to be reconsidered if binary
+/// Inter support is restored.
 #[derive(Debug, Clone)]
 pub struct SymbolsTable {
     /// Warehouse resource ID of this table. Used for wiring references.
@@ -467,8 +482,18 @@ impl Package {
 
     /// Add a child package. The child is indexed by name and appended to
     /// the insertion order.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if a child with the same name already exists.
+    /// Duplicate package names are invalid in Inter and indicate a bug.
     pub fn add_child(&mut self, child: Package) {
         let name = child.name.clone();
+        debug_assert!(
+            !self.children.contains_key(&name),
+            "duplicate child package name: {}",
+            name
+        );
         self.child_order.push(name.clone());
         self.children.insert(name, child);
     }

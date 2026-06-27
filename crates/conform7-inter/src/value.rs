@@ -411,4 +411,66 @@ mod tests {
         let unescaped = unescape_text(&escaped).unwrap();
         assert_eq!(original, unescaped);
     }
+
+    #[test]
+    fn test_all_value_formats() {
+        let strings = |id: u32| match id {
+            1 => "hello".to_string(),
+            2 => "3.14159".to_string(),
+            3 => "frogs".to_string(),
+            4 => "toads".to_string(),
+            5 => "SOME_I6_DRIVEL".to_string(),
+            6 => "{ 2, 3 }".to_string(),
+            7 => "struct{ 5, I_red }".to_string(),
+            _ => "?".to_string(),
+        };
+        let symbols = |id: u32| match id {
+            0x40000001 => "K_number".to_string(),
+            0x40000002 => "I_red".to_string(),
+            _ => "?".to_string(),
+        };
+
+        assert_eq!(InterValue::number(42).to_text(&strings, &symbols), "42");
+        assert_eq!(InterValue::signed_number(-5).to_text(&strings, &symbols), "-5");
+        assert_eq!(InterValue::number_in_base(0xff, 16).to_text(&strings, &symbols), "0xff");
+        assert_eq!(InterValue::number_in_base(5, 2).to_text(&strings, &symbols), "0b101");
+        assert_eq!(InterValue::text(1).to_text(&strings, &symbols), "\"hello\"");
+        assert_eq!(InterValue::real(2).to_text(&strings, &symbols), "r\"3.14159\"");
+        assert_eq!(InterValue::dword(3).to_text(&strings, &symbols), "dw\"frogs\"");
+        assert_eq!(InterValue::pdword(4).to_text(&strings, &symbols), "dwp\"toads\"");
+        assert_eq!(InterValue::glob(5).to_text(&strings, &symbols), "glob\"SOME_I6_DRIVEL\"");
+        assert_eq!(InterValue::symbolic(0x40000001).to_text(&strings, &symbols), "K_number");
+        assert_eq!(InterValue::list(6).to_text(&strings, &symbols), "{ 2, 3 }");
+        assert_eq!(InterValue::struct_lit(7).to_text(&strings, &symbols), "struct{ 5, I_red }");
+        assert_eq!(InterValue::undef().to_text(&strings, &symbols), "!undef");
+    }
+
+    #[test]
+    fn test_value_format_from_u32() {
+        assert_eq!(ValueFormat::from_u32(0x10000), Some(ValueFormat::Decimal));
+        assert_eq!(ValueFormat::from_u32(0x10001), Some(ValueFormat::Hex));
+        assert_eq!(ValueFormat::from_u32(0x10002), Some(ValueFormat::Binary));
+        assert_eq!(ValueFormat::from_u32(0x10003), Some(ValueFormat::Signed));
+        assert_eq!(ValueFormat::from_u32(0x10004), Some(ValueFormat::Textual));
+        assert_eq!(ValueFormat::from_u32(0x10005), Some(ValueFormat::Real));
+        assert_eq!(ValueFormat::from_u32(0x10006), Some(ValueFormat::Dword));
+        assert_eq!(ValueFormat::from_u32(0x10007), Some(ValueFormat::Pdword));
+        assert_eq!(ValueFormat::from_u32(0x10008), Some(ValueFormat::Symbolic));
+        assert_eq!(ValueFormat::from_u32(0x10009), Some(ValueFormat::Glob));
+        assert_eq!(ValueFormat::from_u32(0x1000A), Some(ValueFormat::Undef));
+        assert_eq!(ValueFormat::from_u32(0x20000), Some(ValueFormat::List));
+        assert_eq!(ValueFormat::from_u32(0x20001), Some(ValueFormat::Struct));
+        assert_eq!(ValueFormat::from_u32(0x99999), None);
+    }
+
+    #[test]
+    fn test_escape_edge_cases() {
+        // Trailing backslash should error
+        assert!(unescape_text("trailing\\").is_err());
+        // Unknown escape should error
+        assert!(unescape_text("\\r").is_err());
+        // Empty string should round-trip
+        assert_eq!(unescape_text("").unwrap(), "");
+        assert_eq!(escape_text(""), "");
+    }
 }

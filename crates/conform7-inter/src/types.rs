@@ -380,3 +380,104 @@ impl fmt::Display for InterType {
         write!(f, "{}", self.to_text())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tid_constants() {
+        assert_eq!(Tid::UNCHECKED.0, 1);
+        assert_eq!(Tid::INT32.0, 2);
+        assert_eq!(Tid::INT16.0, 3);
+        assert_eq!(Tid::INT8.0, 4);
+        assert_eq!(Tid::INT2.0, 5);
+        assert_eq!(Tid::REAL.0, 6);
+        assert_eq!(Tid::TEXT.0, 7);
+        assert_eq!(Tid::VOID.0, 20);
+    }
+
+    #[test]
+    fn test_type_constructor_keyword_roundtrip() {
+        let constructors = [
+            TypeConstructor::Unchecked,
+            TypeConstructor::Int32,
+            TypeConstructor::Int16,
+            TypeConstructor::Int8,
+            TypeConstructor::Int2,
+            TypeConstructor::Real,
+            TypeConstructor::Text,
+            TypeConstructor::Enum,
+            TypeConstructor::List,
+            TypeConstructor::Activity,
+            TypeConstructor::Column,
+            TypeConstructor::Table,
+            TypeConstructor::Function,
+            TypeConstructor::Struct,
+            TypeConstructor::Relation,
+            TypeConstructor::Description,
+            TypeConstructor::Rule,
+            TypeConstructor::Rulebook,
+            TypeConstructor::Equated,
+            TypeConstructor::Void,
+        ];
+        for &c in &constructors {
+            let kw = c.keyword();
+            if kw.is_empty() {
+                // Equated has an empty keyword and can't be parsed from text
+                continue;
+            }
+            let c2 = TypeConstructor::from_keyword(kw);
+            assert_eq!(Some(c), c2, "keyword '{}' should round-trip for {:?}", kw, c);
+        }
+    }
+
+    #[test]
+    fn test_type_constructor_u32_roundtrip() {
+        for i in 1..=20u32 {
+            let c = TypeConstructor::from_u32(i).unwrap();
+            assert_eq!(c as u32, i, "u32 {} should round-trip", i);
+        }
+        assert!(TypeConstructor::from_u32(0).is_none());
+        assert!(TypeConstructor::from_u32(99).is_none());
+    }
+
+    #[test]
+    fn test_inter_type_to_text() {
+        assert_eq!(InterType::int32().to_text(), "int32");
+        assert_eq!(InterType::text().to_text(), "text");
+        assert_eq!(InterType::void().to_text(), "void");
+        assert_eq!(InterType::unchecked().to_text(), "unchecked");
+        assert_eq!(InterType::list_of(InterType::int32()).to_text(), "list int32");
+
+        // Named type
+        let named = InterType {
+            constructor: TypeConstructor::Equated,
+            operands: vec![InterType::int32()],
+            type_name: Some("K_number".to_string()),
+        };
+        assert_eq!(named.to_text(), "K_number");
+    }
+
+    #[test]
+    fn test_constructor_arity() {
+        assert_eq!(TypeConstructor::Int32.arity(), 0);
+        assert_eq!(TypeConstructor::List.arity(), 1);
+        assert_eq!(TypeConstructor::Function.arity(), 2);
+        assert_eq!(TypeConstructor::Relation.arity(), 2);
+        assert_eq!(TypeConstructor::Struct.arity(), 0);
+    }
+
+    #[test]
+    fn test_constructor_is_base() {
+        assert!(TypeConstructor::Int32.is_base());
+        assert!(TypeConstructor::Text.is_base());
+        assert!(TypeConstructor::Void.is_base());
+        assert!(!TypeConstructor::List.is_base());
+        assert!(!TypeConstructor::Function.is_base());
+    }
+}

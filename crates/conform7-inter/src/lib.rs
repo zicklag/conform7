@@ -41,7 +41,6 @@
 //! | [`instruction`] | `Inter Constructs.w` | 30+ instruction types and their frame structure |
 //! | [`tree`] | `Inter Trees.w`, `Packages.w`, `Symbols Tables.w` | The core tree, package hierarchy, and symbol management |
 //! | [`textual`] | `Inter in Text Files.w` | Tab-indented human-readable format |
-//! | [`binary`] | `Inter in Binary Files.w` | Compressed binary format with variable-length word encoding |
 //!
 //! # Usage
 //!
@@ -56,7 +55,6 @@
 //! [`binary::read`] to verify round-trip fidelity against the reference
 //! `inform7` compiler output.
 
-pub mod binary;
 pub mod instruction;
 pub mod textual;
 pub mod tree;

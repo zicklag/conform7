@@ -106,18 +106,45 @@ in `gitignore/inform/`:
 
 Understand the existing design before reimagining it.
 
-### 9. Start Small, Ship Early
+**Important: Read the `.w` files, not the Tangled C.** The Inform source is
+organized as literate programs using the `inweb` system. Each module's
+`Chapter N/` directories contain `.w` files — these are the authoritative
+source, with extensive prose explanations interleaved with the code. The
+`Tangled/` directory contains generated C files produced by the `inweb`
+tangler. These are stripped of all commentary and are not meant for human
+consumption. Always read the `.w` files to understand both *what* the code
+does and *why*.
+
+### 9. Literate Code Through Extensive Documentation
+
+Inform's source uses the `inweb` literate programming system, where `.w`
+files interleave prose explanation with code. We adopt the same spirit but
+without a separate tangling tool: every module, type, function, and
+non-obvious block of code should have clear explanatory comments.
+
+- **Module-level docs** (`//!`): Explain the module's role, its place in the
+  overall architecture, and reference the corresponding Inform `.w` chapter.
+- **Type and function docs** (`///`): Describe what, why, and how. Include
+  examples for public API surfaces.
+- **Inline comments** (`//`): Clarify non-obvious logic, document invariants,
+  and cross-reference the C implementation where relevant.
+
+The goal is that a new contributor (or your future self) can read any file
+from top to bottom and understand not just *what* it does but *why* it does
+it that way — without needing to consult external documentation.
+
+### 10. Start Small, Ship Early
 
 The first milestone should be the smallest thing that proves the
 architecture works end-to-end. Build outward from there.
 
-### 10. Salsa-First Design
+### 11. Salsa-First Design
 
 Model everything as Salsa queries. Inputs are source files. Derived queries
 are parsing, name resolution, world model, Inter emission. The LSP is just a
 consumer of the Salsa database. This gives us incrementality for free.
 
-### 11. Plan-Driven Development
+### 12. Plan-Driven Development
 
 Work proceeds in small, focused plans. Each plan targets a single
 well-defined milestone that can be completed, tested, and demonstrated.
@@ -130,3 +157,10 @@ well-defined milestone that can be completed, tested, and demonstrated.
 A plan is done when all its success criteria are met and all tests pass.
 When a plan is complete, move `CURRENT.md` to the next `COMPLETE-N.md`
 and write a new `CURRENT.md` for the next milestone.
+
+### 13. Clean Commit History with `jj`
+
+Use `jj commit` with in-depth descriptions as code is written. Each commit
+should capture a coherent change with a message that explains *what* was
+done and *why*. This keeps the history readable and makes it easy to
+understand the evolution of the codebase.

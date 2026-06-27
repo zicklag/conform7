@@ -1,0 +1,6 @@
+package main _plain
+	package Main _code
+		code
+			inv !enableprinting
+			inv !print
+				val "Hello, world.\n"

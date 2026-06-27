@@ -1,0 +1,18 @@
+packagetype _plain
+packagetype _code
+
+primitive !if val code -> void
+primitive !jump lab -> void
+
+package main _plain
+	typename K_number = int32
+	typename K_func = function /main/K_number -> /main/K_number
+	package (K_func) R_101 _code
+		local (/main/K_number) x
+		code
+			.begin
+			inv !if
+				val 1
+				code
+					inv !jump
+						lab .begin

@@ -1,0 +1,13 @@
+[package]
+name = "conform7-inter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Inter IR reader/writer for the Conform7 Inform 7 compiler"
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

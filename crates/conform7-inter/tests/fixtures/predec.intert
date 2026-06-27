@@ -1,0 +1,7 @@
+packagetype _plain
+packagetype _code
+
+package main _plain
+	typename K_number = int32
+	constant (K_number) Peach = Banana
+	constant (K_number) Banana = 2

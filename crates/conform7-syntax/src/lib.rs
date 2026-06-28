@@ -26,12 +26,14 @@ pub mod lexer;
 pub mod node_type;
 pub mod parse_node;
 pub mod sentence;
+pub mod structural;
 pub mod syntax_kind;
 pub mod token;
 pub mod wording;
 
 pub use heading::parse_heading;
 pub use lexer::Lexer;
+pub use structural::parse_structural;
 pub use node_type::{NodeCategory, NodeFlags, NodeType, NodeTypeMetadata};
 pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, ParseNodeChildren};
 pub use sentence::{break_sentences, HeadingLevel, Sentence, SentenceClassification, StructuralType};

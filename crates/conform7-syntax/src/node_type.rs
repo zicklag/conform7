@@ -107,6 +107,11 @@ pub enum NodeType {
     PropertyCalled,
     Created,
 
+    // Structural sentence nodes (from inbuild/supervisor-module/Chapter 6/Source Text.w).
+    Table,
+    Equation,
+    Use,
+
     // Code nodes.
     InvocationList,
     CodeBlock,
@@ -169,6 +174,10 @@ impl NodeType {
             Adjective => metadata("ADJECTIVE_NT", 0, u32::MAX, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             PropertyCalled => metadata("PROPERTYCALLED_NT", 2, 2, Cat::L3, NodeFlags::default()),
             Created => metadata("CREATED_NT", 0, 0, Cat::L3, NodeFlags::default()),
+
+            Table => metadata("TABLE_NT", 0, 0, Cat::L2, NodeFlags { tabbed: true, ..NodeFlags::default() }),
+            Equation => metadata("EQUATION_NT", 0, 0, Cat::L2, NodeFlags::default()),
+            Use => metadata("USE_NT", 0, 0, Cat::L2, NodeFlags::default()),
 
             InvocationList => metadata("INVOCATION_LIST_NT", 0, u32::MAX, Cat::Code, NodeFlags::default()),
             CodeBlock => metadata("CODE_BLOCK_NT", 0, u32::MAX, Cat::Code, NodeFlags::default()),
@@ -280,5 +289,27 @@ mod tests {
     fn test_display() {
         assert_eq!(format!("{}", NodeType::Root), "ROOT_NT");
         assert_eq!(format!("{}", NodeType::Constant), "CONSTANT_NT");
+    }
+
+    #[test]
+    fn test_table_metadata() {
+        let m = NodeType::Table.metadata();
+        assert_eq!(m.name, "TABLE_NT");
+        assert_eq!(m.category, NodeCategory::L2);
+        assert!(m.flags.tabbed);
+    }
+
+    #[test]
+    fn test_equation_metadata() {
+        let m = NodeType::Equation.metadata();
+        assert_eq!(m.name, "EQUATION_NT");
+        assert_eq!(m.category, NodeCategory::L2);
+    }
+
+    #[test]
+    fn test_use_metadata() {
+        let m = NodeType::Use.metadata();
+        assert_eq!(m.name, "USE_NT");
+        assert_eq!(m.category, NodeCategory::L2);
     }
 }

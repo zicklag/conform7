@@ -1,8 +1,8 @@
 # Plan 6: I7 Sentence-to-AST Bridge — Structural Sentences
 
-**Status**: In progress
+**Status**: Complete
 **Started**: 2026-06-27
-**Target**: 1-2 days
+**Completed**: 2026-06-27
 
 ## Goal
 
@@ -29,22 +29,22 @@ In the C implementation these map to node types like `INCLUDE_NT`, `BEGINHERE_NT
 
 ## Tasks
 
-- [ ] Add a `parse_structural` helper that converts a structural sentence into
+- [x] Add a `parse_structural` helper that converts a structural sentence into
       the appropriate `ParseNode`.
-- [ ] Map each `StructuralType` to the correct `NodeType`.
-- [ ] Preserve the sentence wording on the resulting node.
-- [ ] Add unit tests for each structural sentence type.
-- [ ] Add an integration test: source text → lexer → sentence breaker →
+- [x] Map each `StructuralType` to the correct `NodeType`.
+- [x] Preserve the sentence wording on the resulting node.
+- [x] Add unit tests for each structural sentence type.
+- [x] Add an integration test: source text → lexer → sentence breaker →
       structural AST nodes.
-- [ ] Update `plans/CURRENT.md` and module docs.
+- [x] Update `plans/CURRENT.md` and module docs.
 
 ## Success criteria
 
-- [ ] Each structural sentence classification produces a `ParseNode` of the
+- [x] Each structural sentence classification produces a `ParseNode` of the
       corresponding type.
-- [ ] Node wording covers the structural sentence body.
-- [ ] All tests pass.
-- [ ] `cargo clippy --all-targets` is clean.
+- [x] Node wording covers the structural sentence body.
+- [x] All tests pass.
+- [x] `cargo clippy --all-targets` is clean.
 
 ## Out of scope
 

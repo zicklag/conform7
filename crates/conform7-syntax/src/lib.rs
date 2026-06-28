@@ -2,11 +2,14 @@
 //!
 //! This crate defines the `SyntaxKind` enum — the canonical set of token and
 //! node types used throughout the Conform7 compiler — and provides a lexer
-//! that tokenizes I7 source text into a flat sequence of tokens.
+//! that tokenizes I7 source text into a flat sequence of tokens, plus a
+//! sentence breaker that splits the token stream into classified sentences.
 //!
 //! The lexer is the first stage of the I7 frontend. It reads raw source
-//! characters and produces a token stream that the parser (in a later plan)
-//! will consume to build a Rowan CST/AST.
+//! characters and produces a token stream. The sentence breaker is the second
+//! stage: it takes the token stream and groups tokens into sentences,
+//! classifying each as a heading, structural sentence, rule preamble,
+//! rule phrase, or regular sentence.
 //!
 //! # Architecture
 //!
@@ -20,15 +23,25 @@
 //! - **Paragraph breaks**: blank lines (semantically significant in I7)
 //! - **Headings**: lines beginning with Volume/Book/Part/Chapter/Section
 //!
+//! The sentence breaker is a finite state machine, mirroring the C
+//! implementation in `services/syntax-module/Chapter 3/Sentences.w`. It:
+//!
+//! - Splits the token stream on `.`, `;`, `:`, and paragraph breaks
+//! - Classifies sentences as headings, structural, rule preambles, etc.
+//! - Tracks rule mode (after colon) and table mode (after Table keyword)
+//!
 //! # References
 //!
 //! - C reference: `services/words-module/Chapter 3/Lexer.w`
 //! - C reference: `services/words-module/Chapter 3/Feeds.w`
+//! - C reference: `services/syntax-module/Chapter 3/Sentences.w`
 
 pub mod lexer;
+pub mod sentence;
 pub mod syntax_kind;
 pub mod token;
 
 pub use lexer::Lexer;
+pub use sentence::{break_sentences, HeadingLevel, Sentence, SentenceClassification, StructuralType};
 pub use syntax_kind::SyntaxKind;
 pub use token::Token;

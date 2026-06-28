@@ -2,46 +2,39 @@
 //!
 //! This crate defines the `SyntaxKind` enum — the canonical set of token and
 //! node types used throughout the Conform7 compiler — and provides a lexer
-//! that tokenizes I7 source text into a flat sequence of tokens, plus a
-//! sentence breaker that splits the token stream into classified sentences.
+//! that tokenizes I7 source text into a flat sequence of tokens, a sentence
+//! breaker that splits the token stream into classified sentences, and the
+//! foundational parse tree data structures used by the I7 parser.
 //!
-//! The lexer is the first stage of the I7 frontend. It reads raw source
-//! characters and produces a token stream. The sentence breaker is the second
-//! stage: it takes the token stream and groups tokens into sentences,
-//! classifying each as a heading, structural sentence, rule preamble,
-//! rule phrase, or regular sentence.
+//! # Pipeline
 //!
-//! # Architecture
-//!
-//! The lexer is a simple state machine, mirroring the C implementation in
-//! `services/words-module/Chapter 3/Lexer.w`. It handles:
-//!
-//! - **Ordinary words**: natural language text, numbers, punctuation
-//! - **Quoted strings**: `"text"` with text substitutions `[...]` inside
-//! - **I6 escape blocks**: `(- ... -)` embedded Inform 6 code
-//! - **Comments**: `[...]` outside strings (preserved as COMMENT tokens)
-//! - **Paragraph breaks**: blank lines (semantically significant in I7)
-//! - **Headings**: lines beginning with Volume/Book/Part/Chapter/Section
-//!
-//! The sentence breaker is a finite state machine, mirroring the C
-//! implementation in `services/syntax-module/Chapter 3/Sentences.w`. It:
-//!
-//! - Splits the token stream on `.`, `;`, `:`, and paragraph breaks
-//! - Classifies sentences as headings, structural, rule preambles, etc.
-//! - Tracks rule mode (after colon) and table mode (after Table keyword)
+//! 1. **Lexer** (`lexer`): characters → tokens
+//! 2. **Sentence breaker** (`sentence`): tokens → classified sentences
+//! 3. **Parse tree** (`parse_node`, `node_type`, `wording`): sentences → AST
+//!    (this stage is the data model; the grammar parser comes later)
 //!
 //! # References
 //!
 //! - C reference: `services/words-module/Chapter 3/Lexer.w`
 //! - C reference: `services/words-module/Chapter 3/Feeds.w`
 //! - C reference: `services/syntax-module/Chapter 3/Sentences.w`
+//! - C reference: `services/syntax-module/Chapter 2/Parse Nodes.w`
+//! - C reference: `services/syntax-module/Chapter 2/Node Types.w`
 
+pub mod heading;
 pub mod lexer;
+pub mod node_type;
+pub mod parse_node;
 pub mod sentence;
 pub mod syntax_kind;
 pub mod token;
+pub mod wording;
 
+pub use heading::parse_heading;
 pub use lexer::Lexer;
+pub use node_type::{NodeCategory, NodeFlags, NodeType, NodeTypeMetadata};
+pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, ParseNodeChildren};
 pub use sentence::{break_sentences, HeadingLevel, Sentence, SentenceClassification, StructuralType};
 pub use syntax_kind::SyntaxKind;
 pub use token::Token;
+pub use wording::Wording;

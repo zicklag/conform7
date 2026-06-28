@@ -25,6 +25,7 @@ pub mod heading;
 pub mod lexer;
 pub mod node_type;
 pub mod parse_node;
+pub mod preform;
 pub mod sentence;
 pub mod structural;
 pub mod syntax_kind;
@@ -33,6 +34,7 @@ pub mod wording;
 
 pub use heading::parse_heading;
 pub use lexer::Lexer;
+pub use preform::parse_preform_grammar;
 pub use structural::parse_structural;
 pub use node_type::{NodeCategory, NodeFlags, NodeType, NodeTypeMetadata};
 pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, ParseNodeChildren};

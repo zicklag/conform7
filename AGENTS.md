@@ -149,14 +149,17 @@ consumer of the Salsa database. This gives us incrementality for free.
 Work proceeds in small, focused plans. Each plan targets a single
 well-defined milestone that can be completed, tested, and demonstrated.
 
-- **`plans/CURRENT.md`** — The active plan. This is what we're working on
-  right now.
-- **`plans/COMPLETE-1.md`, `COMPLETE-2.md`, ...** — Completed plans,
-  archived in order of completion.
+- **`plans/PLAN-N.md`** — Each plan gets its own numbered file (e.g.,
+  `PLAN-1.md`, `PLAN-2.md`, …). The file stays put forever — no renaming
+  or archiving.
+- **`plans/CURRENT.md`** — A one-liner pointing to the active plan, e.g.
+  `Current plan: PLAN-6.md`. This is the only file that changes between
+  plans.
 
 A plan is done when all its success criteria are met and all tests pass.
-When a plan is complete, move `CURRENT.md` to the next `COMPLETE-N.md`
-and write a new `CURRENT.md` for the next milestone.
+When a plan is complete, update its status to "Complete", write the next
+`PLAN-(N+1).md` with status "In progress", and update `CURRENT.md` to
+point to the new plan.
 
 ### 13. Clean Commit History with `jj`
 

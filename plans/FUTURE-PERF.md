@@ -79,4 +79,4 @@ matching and allocation-heavy patterns. It's only used during compilation
 1. **Nothing** — It's fast enough for its use case.
 2. **Binary Inter** — If we ever need to read/write Inter files in a hot
    loop (e.g., incremental compilation), a binary format would be faster.
-   This was removed in Plan 1 (see `plans/PAST-1.md`).
+   This was removed in Plan 1 (see `plans/PLAN-1.md`).

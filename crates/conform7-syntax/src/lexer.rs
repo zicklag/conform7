@@ -6,14 +6,13 @@
 //!
 //! # State machine
 //!
-//! The lexer has two main modes:
+//! The lexer has four modes:
 //!
 //! - **Ordinary mode** (default): reading natural language text, punctuation,
 //!   numbers, comments, and I6 escape blocks.
-//! - **Literal mode**: reading inside a quoted string, comment, or I6 block.
-//!
-//! Within literal mode, the `kind` field tracks which kind of literal we are
-//! inside (string, comment, or I6 block).
+//! - **String mode**: reading inside a quoted string `"..."`.
+//! - **Comment mode**: reading inside a comment `[...]`.
+//! - **I6Block mode**: reading inside an I6 escape block `(- ... -)`.
 //!
 //! # Paragraph breaks
 //!
@@ -44,14 +43,6 @@ enum LexMode {
     /// Inside a comment `[...]`
     Comment,
     /// Inside an I6 escape block `(- ... -)`
-    I6Block,
-}
-
-/// The kind of literal being read in literal mode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LiteralKind {
-    String,
-    Comment,
     I6Block,
 }
 
@@ -101,14 +92,11 @@ struct LexerState<'a> {
     tokens: Vec<Token>,
     /// The current lexer mode.
     mode: LexMode,
-    /// The kind of literal being read (valid only in literal mode).
-    literal_kind: LiteralKind,
     /// Nesting depth for comments (supports nested `[...]`).
     comment_nesting: u32,
     /// Whether we are at the start of a new paragraph.
+    /// Only true at the very beginning of the source and after a blank line.
     at_paragraph_start: bool,
-    /// Whether the current line is empty so far (only whitespace seen).
-    line_is_empty: bool,
     /// Whether the current word is empty so far (no non-whitespace seen).
     word_is_empty: bool,
     /// The start position of the current word being accumulated.
@@ -130,10 +118,8 @@ impl<'a> LexerState<'a> {
             column: 1,
             tokens: Vec::new(),
             mode: LexMode::Ordinary,
-            literal_kind: LiteralKind::String,
             comment_nesting: 0,
             at_paragraph_start: true,
-            line_is_empty: true,
             word_is_empty: true,
             word_start: 0,
             word_start_line: 1,
@@ -196,12 +182,17 @@ impl<'a> LexerState<'a> {
         Some(b)
     }
 
-    /// Emit a token.
+    /// Emit a token for the last N bytes consumed.
+    ///
+    /// This works correctly for single-line tokens where the column
+    /// advances monotonically. For tokens containing newlines (NEWLINE,
+    /// ParagraphBreak), the caller saves the start column before advancing
+    /// and creates the token directly.
     fn emit_token(&mut self, kind: SyntaxKind, text: &str) {
         let start = self.pos.saturating_sub(text.len());
         let end = self.pos;
         let line = self.line;
-        let column = self.column.saturating_sub(text.len() as u32 as usize);
+        let column = self.column.saturating_sub(text.len());
         self.tokens.push(Token::new(kind, text, start..end, line, column));
     }
 
@@ -304,34 +295,62 @@ impl<'a> LexerState<'a> {
     fn lex_ordinary(&mut self) {
         let Some(c) = self.peek() else { return };
 
-
         // Handle newlines
         if Self::is_newline(c) {
             self.flush_word();
-            self.advance();
-            self.emit_token(SyntaxKind::NEWLINE, "\n");
-            self.line_is_empty = true;
 
-            // Check for paragraph break (blank line)
-            // A paragraph break is two consecutive newlines with only
-            // whitespace between them.
-            let mut lookahead = self.pos;
+            // Save start position before advancing (column resets on newline)
+            let start_pos = self.pos;
+            let start_line = self.line;
+            let start_column = self.column;
+
+            // Look ahead for a blank line (two newlines with only
+            // whitespace between them).
+            let mut lookahead = self.pos + 1;
+            let mut is_paragraph_break = false;
             while lookahead < self.source.len() {
                 let b = self.source.as_bytes()[lookahead];
                 if Self::is_newline(b) {
-                    // Found a blank line — paragraph break
-                    self.at_paragraph_start = true;
-                    self.emit_token(SyntaxKind::ParagraphBreak, "\n\n");
-                    // Consume the second newline
-                    self.advance();
-                    return;
+                    is_paragraph_break = true;
+                    break;
                 } else if Self::is_whitespace(b) {
                     lookahead += 1;
                 } else {
                     break;
                 }
             }
-            self.at_paragraph_start = true;
+
+            if is_paragraph_break {
+                // Paragraph break: consume from first newline through second
+                self.advance(); // consume first \n
+                // Advance through any whitespace between the newlines
+                while self.pos < lookahead {
+                    self.advance();
+                }
+                self.advance(); // consume second \n
+                let text = &self.source[start_pos..self.pos];
+                self.tokens.push(Token::new(
+                    SyntaxKind::ParagraphBreak,
+                    text,
+                    start_pos..self.pos,
+                    start_line,
+                    start_column,
+                ));
+                self.at_paragraph_start = true;
+            } else {
+                // Single newline (not a paragraph break)
+                self.advance();
+                self.tokens.push(Token::new(
+                    SyntaxKind::NEWLINE,
+                    "\n",
+                    start_pos..self.pos,
+                    start_line,
+                    start_column,
+                ));
+                // A single newline does NOT start a new paragraph in I7.
+                // Only blank lines (paragraph breaks) start new paragraphs.
+                self.at_paragraph_start = false;
+            }
             return;
         }
 
@@ -345,15 +364,11 @@ impl<'a> LexerState<'a> {
             return;
         }
 
-        // We've seen a non-whitespace character on this line
-        self.line_is_empty = false;
-
         // Handle comments `[...]` outside strings
         if c == b'[' {
             self.flush_word();
             self.advance(); // consume `[`
             self.mode = LexMode::Comment;
-            self.literal_kind = LiteralKind::Comment;
             self.comment_nesting = 1;
             self.word_start = self.pos - 1;
             self.word_start_line = self.line;
@@ -368,7 +383,6 @@ impl<'a> LexerState<'a> {
             self.advance(); // consume `(`
             self.advance(); // consume `-`
             self.mode = LexMode::I6Block;
-            self.literal_kind = LiteralKind::I6Block;
             self.word_start = self.pos - 2;
             self.word_start_line = self.line;
             self.word_start_column = self.column - 2;
@@ -381,7 +395,6 @@ impl<'a> LexerState<'a> {
             self.flush_word();
             self.advance(); // consume `"`
             self.mode = LexMode::String;
-            self.literal_kind = LiteralKind::String;
             self.word_start = self.pos - 1;
             self.word_start_line = self.line;
             self.word_start_column = self.column - 1;
@@ -456,13 +469,10 @@ impl<'a> LexerState<'a> {
             return;
         }
 
-        // Handle text substitutions inside strings
+        // Handle text substitutions `[...]` inside strings.
+        // The C lexer stores the whole string (including substitutions)
+        // as one word, so we just include the bracket in the STRING token.
         if c == b'[' {
-            // Emit the string text up to this point as a STRING token
-            // Then switch to text substitution mode
-            // Actually, for simplicity, we'll include text substitutions
-            // as part of the string. The C lexer stores the whole string
-            // as one word, including substitutions.
             self.advance();
             return;
         }
@@ -873,5 +883,77 @@ Instead of taking the beaker:
                 assert_eq!(t.text, r#""Hello \"world\"""#);
             }
         }
+    }
+
+    #[test]
+    fn test_heading_not_after_plain_newline() {
+        // A single newline does NOT start a new paragraph.
+        // "Chapter" after a plain newline should be a WORD, not HeadingMarker.
+        let tokens = Lexer::tokenize("See\nChapter 5 for details.").unwrap();
+        for t in &tokens {
+            if t.text == "Chapter" {
+                assert_eq!(t.kind, SyntaxKind::WORD,
+                    "Chapter after plain newline should be WORD, got {:?}", t.kind);
+            }
+        }
+    }
+
+    #[test]
+    fn test_paragraph_break_text_and_range() {
+        let source = "First.\n\nSecond.";
+        let tokens = Lexer::tokenize(source).unwrap();
+        let pb: Vec<&Token> = tokens.iter().filter(|t| t.kind == SyntaxKind::ParagraphBreak).collect();
+        assert_eq!(pb.len(), 1, "expected exactly one ParagraphBreak");
+        assert_eq!(pb[0].text, "\n\n", "ParagraphBreak text should be '\\n\\n', got {:?}", pb[0].text);
+        assert_eq!(&source[pb[0].range.clone()], "\n\n", "ParagraphBreak range should cover both newlines");
+    }
+
+    #[test]
+    fn test_paragraph_break_with_whitespace() {
+        // Paragraph break with spaces/tabs between the newlines
+        let source = "First.\n   \nSecond.";
+        let tokens = Lexer::tokenize(source).unwrap();
+        let pb: Vec<&Token> = tokens.iter().filter(|t| t.kind == SyntaxKind::ParagraphBreak).collect();
+        assert_eq!(pb.len(), 1, "expected exactly one ParagraphBreak");
+        assert_eq!(pb[0].text, "\n   \n", "ParagraphBreak should include whitespace between newlines");
+    }
+
+    #[test]
+    fn test_exact_token_sequence() {
+        let tokens = Lexer::tokenize("The Lab is a room.").unwrap();
+        let kinds: Vec<SyntaxKind> = tokens.iter().map(|t| t.kind).collect();
+        let expected = vec![
+            SyntaxKind::WORD,       // The
+            SyntaxKind::WHITESPACE,  //
+            SyntaxKind::WORD,       // Lab
+            SyntaxKind::WHITESPACE,  //
+            SyntaxKind::WORD,       // is
+            SyntaxKind::WHITESPACE,  //
+            SyntaxKind::WORD,       // a
+            SyntaxKind::WHITESPACE,  //
+            SyntaxKind::WORD,       // room
+            SyntaxKind::PUNCTUATION, // .
+        ];
+        assert_eq!(kinds, expected, "expected {:?}, got {:?}", expected, kinds);
+    }
+
+    #[test]
+    fn test_multi_byte_characters() {
+        // Em dash (U+2014) is 3 bytes in UTF-8
+        let source = "A \u{2014} B";
+        let tokens = Lexer::tokenize(source).unwrap();
+        // The em dash should be treated as a word character (not punctuation)
+        let words: Vec<&str> = tokens.iter().filter(|t| t.kind == SyntaxKind::WORD).map(|t| t.text.as_str()).collect();
+        assert!(words.contains(&"\u{2014}"), "em dash should be a WORD token, got words: {:?}", words);
+    }
+
+    #[test]
+    fn test_newline_column_tracking() {
+        // Verify that newline tokens have the correct column
+        let source = "abc\ndef";
+        let tokens = Lexer::tokenize(source).unwrap();
+        let nl = tokens.iter().find(|t| t.kind == SyntaxKind::NEWLINE).unwrap();
+        assert_eq!(nl.line, 1);
+        assert_eq!(nl.column, 4, "newline at column 4 (after 'abc')");
     }
 }

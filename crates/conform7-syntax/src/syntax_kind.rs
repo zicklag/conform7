@@ -31,12 +31,8 @@ pub enum SyntaxKind {
     /// Includes the `(-` and `-)` delimiters.
     I6Block,
 
-    /// A text substitution inside a quoted string: `[the noun]`, `[if ...]`.
-    /// Includes the surrounding brackets.
-    TextSubstitution,
-
     /// A comment: `[...]` outside strings.
-    /// Comments are stripped by the lexer and not emitted as tokens.
+    /// Preserved as COMMENT tokens for round-trip fidelity.
     COMMENT,
 
     /// A heading marker word: `Volume`, `Book`, `Part`, `Chapter`, `Section`.
@@ -113,7 +109,6 @@ impl SyntaxKind {
             SyntaxKind::WORD
                 | SyntaxKind::STRING
                 | SyntaxKind::I6Block
-                | SyntaxKind::TextSubstitution
                 | SyntaxKind::COMMENT
                 | SyntaxKind::HeadingMarker
                 | SyntaxKind::PUNCTUATION

@@ -16,6 +16,10 @@ pub struct Token {
     pub kind: SyntaxKind,
 
     /// The exact source text of this token.
+    ///
+    /// **Note**: Currently a heap-allocated `String` for simplicity.
+    /// In a future optimization pass, this could borrow from the source
+    /// string via a lifetime parameter to avoid per-token allocations.
     pub text: String,
 
     /// The byte range of this token in the original source.
@@ -25,6 +29,13 @@ pub struct Token {
     pub line: usize,
 
     /// The column number (1-indexed, in bytes) where this token starts.
+    ///
+    /// **Note**: Columns are byte-based, not Unicode code-point or
+    /// grapheme-cluster based. For ASCII source this is equivalent to
+    /// character position. For source with multi-byte characters (e.g.,
+    /// em dashes, smart quotes), the column counts raw bytes. The LSP
+    /// layer will need to translate to UTF-16 code units for protocol
+    /// compliance.
     pub column: usize,
 }
 

@@ -16,7 +16,7 @@
 //! - **Ordinary words**: natural language text, numbers, punctuation
 //! - **Quoted strings**: `"text"` with text substitutions `[...]` inside
 //! - **I6 escape blocks**: `(- ... -)` embedded Inform 6 code
-//! - **Comments**: `[...]` outside strings (stripped, not stored as tokens)
+//! - **Comments**: `[...]` outside strings (preserved as COMMENT tokens)
 //! - **Paragraph breaks**: blank lines (semantically significant in I7)
 //! - **Headings**: lines beginning with Volume/Book/Part/Chapter/Section
 //!

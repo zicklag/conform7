@@ -1,8 +1,8 @@
 # Plan 2: I7 Lexer Foundation
 
-**Status**: In progress
+**Status**: Complete
 **Started**: 2026-06-27
-**Target**: 3-5 days
+**Completed**: 2026-06-27
 
 ## Goal
 
@@ -41,18 +41,18 @@ crates/conform7-syntax/
 ### Capabilities
 
 1. **`SyntaxKind` enum** — Covers all I7 token types:
-   - `Word` — any natural language word (case-preserved)
-   - `QuotedString` — `"text"` (including text substitutions inside)
-   - `I6Bracketed` — `(- ... -)` embedded Inform 6 code
-   - `TextSubstitution` — `[...]` inside quoted strings
-   - `Comment` — `[...]` outside quoted strings
+   - `WORD` — any natural language word (case-preserved)
+   - `STRING` — `"text"` (including text substitutions inside)
+   - `I6Block` — `(- ... -)` embedded Inform 6 code
+   - `COMMENT` — `[...]` outside quoted strings
    - `HeadingMarker` — Volume, Book, Part, Chapter, Section
-   - `Punctuation` — `. , : ; ? ! ( ) { }`
+   - `PUNCTUATION` — `. , : ; ? ! ( ) { }`
    - `ParagraphBreak` — blank line between paragraphs
-   - `Number` — integer literal
-   - `Whitespace` — spaces, tabs (preserved for round-trip)
-   - `Newline` — line endings
-   - `Error` — malformed input
+   - `NUMBER` — integer literal
+   - `DASH`, `EQUALS`, `SLASH` — special characters
+   - `WHITESPACE` — spaces, tabs (preserved for round-trip)
+   - `NEWLINE` — line endings
+   - `ERROR` — malformed input
 
 2. **Lexer** — State machine that reads I7 source text and produces tokens:
    - Handles quoted strings with text substitutions

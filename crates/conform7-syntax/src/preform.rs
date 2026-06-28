@@ -11,18 +11,26 @@
 //! # Format
 //!
 //! ```text
+//! language English
+//!
 //! <nonterminal-name> internal
 //!
 //! <nonterminal-name> ::=
-//!     production1 |
+//!     /a/ production1 |
 //!     production2 |
 //!     ...
 //! ```
 //!
 //! Where productions contain:
 //! - **Fixed words**: literal text like `to`, `is`, `a`, `room`
-//! - **Wildcards**: `...` (matches any number of words)
+//! - **Wildcards**: `...` (matches one or more words), `......` (balanced),
+//!   `###` (exactly one word), `***` (zero or more words)
 //! - **Sub-nonterminals**: `<quoted-text>`, `<if-start-of-paragraph>`, etc.
+//! - **Modifiers**: `^` (negation), `_` (disallow unexpected upper case), `\`
+//!   (escape the next token, suppressing wildcard recognition)
+//! - **Alternatives**: `something/anything` or `_,/and`
+//! - **Braces**: `{each other in groups}` mark the start/end of a word range
+//! - **Production match numbers**: `/a/`, `/b/`, `/aa/`, `/bb/`
 //!
 //! # References
 //!
@@ -34,6 +42,8 @@ use std::fmt;
 /// A complete Preform grammar, containing all nonterminals.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Grammar {
+    /// The language declared at the top of the file, if any.
+    pub language: Option<String>,
     /// All nonterminals in the grammar, in declaration order.
     pub nonterminals: Vec<Nonterminal>,
 }
@@ -52,23 +62,166 @@ pub struct Nonterminal {
 /// A single production (alternative) within a nonterminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Production {
+    /// Explicit production match number set by `/a/`, `/b/`, `/aa/`, etc.
+    ///
+    /// If `None`, the production simply takes its index in the nonterminal as
+    /// its match number, matching the C default.
+    pub match_number: Option<u8>,
     /// The tokens that make up this production.
     pub tokens: Vec<ProductionToken>,
 }
 
 /// A token within a production.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProductionToken {
+pub struct ProductionToken {
+    /// What kind of token this is.
+    pub category: ProductionTokenCategory,
+    /// If true, this token is negated (`^`).
+    pub negated: bool,
+    /// If true, the matched word must not have an unexpected upper-case letter
+    /// (`_`).
+    pub disallow_unexpected_upper: bool,
+    /// If true, the token was escaped with `\`, so wildcard recognition was
+    /// suppressed.
+    pub escaped: bool,
+    /// Alternative forms for this token, connected by `/` in the source.
+    pub alternatives: Vec<ProductionTokenCategory>,
+    /// Result number assigned by `? N` after a sub-nonterminal.
+    pub result_index: Option<usize>,
+    /// If set, this token starts a braced word range with the given range id.
+    pub range_start: Option<usize>,
+    /// If set, this token ends a braced word range with the given range id.
+    pub range_end: Option<usize>,
+}
+
+/// The category of a [`ProductionToken`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProductionTokenCategory {
     /// A literal word that must appear verbatim (e.g., `"to"`, `"is"`, `"room"`).
     FixedWord(String),
-    /// A wildcard matching any number of words (`...`).
-    Wildcard,
+    /// A wildcard matching exactly one word (`###`).
+    SingleWildcard,
+    /// A wildcard matching one or more words (`...`).
+    MultipleWildcard,
+    /// A wildcard matching one or more words while keeping bracket pairs in
+    /// balance (`......`).
+    BalancedMultipleWildcard,
+    /// A wildcard matching zero or more words (`***`).
+    PossiblyEmptyWildcard,
     /// A reference to another nonterminal (e.g., `<quoted-text>`).
     SubNonterminal(String),
 }
 
+impl ProductionToken {
+    /// Build a plain fixed-word token.
+    pub fn fixed(word: impl Into<String>) -> Self {
+        Self {
+            category: ProductionTokenCategory::FixedWord(word.into()),
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Build a sub-nonterminal token.
+    pub fn sub(name: impl Into<String>) -> Self {
+        Self {
+            category: ProductionTokenCategory::SubNonterminal(name.into()),
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Build a `...` wildcard token.
+    pub fn multiple_wildcard() -> Self {
+        Self {
+            category: ProductionTokenCategory::MultipleWildcard,
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Build a `......` balanced wildcard token.
+    pub fn balanced_multiple_wildcard() -> Self {
+        Self {
+            category: ProductionTokenCategory::BalancedMultipleWildcard,
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Build a `###` single-word wildcard token.
+    pub fn single_wildcard() -> Self {
+        Self {
+            category: ProductionTokenCategory::SingleWildcard,
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Build a `***` possibly-empty wildcard token.
+    pub fn possibly_empty_wildcard() -> Self {
+        Self {
+            category: ProductionTokenCategory::PossiblyEmptyWildcard,
+            negated: false,
+            disallow_unexpected_upper: false,
+            escaped: false,
+            alternatives: Vec::new(),
+            result_index: None,
+            range_start: None,
+            range_end: None,
+        }
+    }
+
+    /// Mark this token as negated (`^`).
+    pub fn negated(mut self) -> Self {
+        self.negated = true;
+        self
+    }
+
+    /// Mark this token as disallowing unexpected upper case (`_`).
+    pub fn lower(mut self) -> Self {
+        self.disallow_unexpected_upper = true;
+        self
+    }
+
+    /// Mark this token as escaped (`\`).
+    pub fn escaped(mut self) -> Self {
+        self.escaped = true;
+        self
+    }
+}
+
 impl fmt::Display for Grammar {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(lang) = &self.language {
+            writeln!(f, "language {}", lang)?;
+            writeln!(f)?;
+        }
         for (i, nt) in self.nonterminals.iter().enumerate() {
             if i > 0 {
                 writeln!(f)?;
@@ -98,11 +251,22 @@ impl fmt::Display for Nonterminal {
 
 impl fmt::Display for Production {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, token) in self.tokens.iter().enumerate() {
-            if i > 0 {
+        if let Some(n) = self.match_number {
+            write!(f, "/{}/ ", match_number_to_letters(n))?;
+        }
+        let mut first = true;
+        for token in &self.tokens {
+            if !first {
                 write!(f, " ")?;
             }
+            if token.range_start.is_some() {
+                write!(f, "{{")?;
+            }
             write!(f, "{}", token)?;
+            if token.range_end.is_some() {
+                write!(f, "}}")?;
+            }
+            first = false;
         }
         Ok(())
     }
@@ -110,11 +274,45 @@ impl fmt::Display for Production {
 
 impl fmt::Display for ProductionToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProductionToken::FixedWord(word) => write!(f, "{}", word),
-            ProductionToken::Wildcard => write!(f, "..."),
-            ProductionToken::SubNonterminal(name) => write!(f, "<{}>", name),
+        if self.escaped {
+            write!(f, "\\")?;
         }
+        if self.negated {
+            write!(f, "^")?;
+        }
+        if self.disallow_unexpected_upper {
+            write!(f, "_")?;
+        }
+        self.category.fmt(f)?;
+        for alt in &self.alternatives {
+            write!(f, "/{}", alt)?;
+        }
+        if let Some(n) = self.result_index {
+            write!(f, " ? {}", n)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for ProductionTokenCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProductionTokenCategory::FixedWord(word) => write!(f, "{}", word),
+            ProductionTokenCategory::SingleWildcard => write!(f, "###"),
+            ProductionTokenCategory::MultipleWildcard => write!(f, "..."),
+            ProductionTokenCategory::BalancedMultipleWildcard => write!(f, "......"),
+            ProductionTokenCategory::PossiblyEmptyWildcard => write!(f, "***"),
+            ProductionTokenCategory::SubNonterminal(name) => write!(f, "<{}>", name),
+        }
+    }
+}
+
+fn match_number_to_letters(n: u8) -> String {
+    if n < 26 {
+        ((b'a' + n) as char).to_string()
+    } else {
+        let c = (b'a' + n - 26) as char;
+        format!("{c}{c}")
     }
 }
 
@@ -122,21 +320,134 @@ impl fmt::Display for ProductionToken {
 // PEG parser for the Preform format
 // ---------------------------------------------------------------------------
 
+/// Internal elements parsed within a single production.
+enum ProductionElement {
+    Token(ProductionToken),
+    OpenBrace,
+    CloseBrace,
+    MatchNumber(u8),
+}
+
+/// Internal top-level item returned by the grammar parser.
+enum TopLevelItem {
+    Language(String),
+    Nonterminal(Nonterminal),
+}
+
+fn resolve_elements(elements: Vec<ProductionElement>) -> Option<Production> {
+    let mut tokens: Vec<ProductionToken> = Vec::new();
+    let mut match_number = None;
+    let mut pending_open: Option<usize> = None;
+    let mut active_ranges: Vec<usize> = Vec::new();
+    let mut next_range_id = 1usize;
+
+    for elem in elements {
+        match elem {
+            ProductionElement::MatchNumber(n) => {
+                match_number = Some(n);
+            }
+            ProductionElement::OpenBrace => {
+                let id = next_range_id;
+                next_range_id += 1;
+                pending_open = Some(id);
+            }
+            ProductionElement::CloseBrace => {
+                if let Some(id) = active_ranges.pop() {
+                    if let Some(last) = tokens.last_mut() {
+                        last.range_end = Some(id);
+                    }
+                }
+            }
+            ProductionElement::Token(mut token) => {
+                if let Some(id) = pending_open.take() {
+                    token.range_start = Some(id);
+                    active_ranges.push(id);
+                }
+                tokens.push(token);
+            }
+        }
+    }
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(Production {
+            match_number,
+            tokens,
+        })
+    }
+}
+
+fn new_production_token(category: ProductionTokenCategory) -> ProductionToken {
+    ProductionToken {
+        category,
+        negated: false,
+        disallow_unexpected_upper: false,
+        escaped: false,
+        alternatives: Vec::new(),
+        result_index: None,
+        range_start: None,
+        range_end: None,
+    }
+}
+
+fn split_word(text: &str) -> ProductionToken {
+    let chars: Vec<char> = text.chars().collect();
+    let mut segments: Vec<String> = Vec::new();
+    let mut current = String::new();
+
+    for (i, c) in chars.iter().enumerate() {
+        if *c == '/' {
+            // C only splits at slashes that have word material on both sides.
+            if !current.is_empty() && i + 1 < chars.len() {
+                segments.push(current.clone());
+                current.clear();
+            } else {
+                current.push(*c);
+            }
+        } else {
+            current.push(*c);
+        }
+    }
+    segments.push(current);
+
+    let head = ProductionTokenCategory::FixedWord(segments.remove(0));
+    let alternatives: Vec<_> = segments
+        .into_iter()
+        .map(ProductionTokenCategory::FixedWord)
+        .collect();
+    ProductionToken {
+        category: head,
+        alternatives,
+        ..new_production_token(ProductionTokenCategory::FixedWord(String::new()))
+    }
+}
+
 peg::parser! {
     grammar preform_parser() for str {
         /// Parse an entire Preform grammar source.
         pub(crate) rule grammar() -> Grammar
-            = decls:top_level_item()* EOI()
-              { Grammar { nonterminals: decls.into_iter().flatten().collect() } }
+            = items:top_level_item()* EOI()
+              {
+                  let mut language = None;
+                  let mut nonterminals = Vec::new();
+                  for item in items {
+                      match item {
+                          TopLevelItem::Language(l) => language = Some(l),
+                          TopLevelItem::Nonterminal(n) => nonterminals.push(n),
+                      }
+                  }
+                  Grammar { language, nonterminals }
+              }
 
         // A top-level item: nonterminal declaration or language switch.
-        rule top_level_item() -> Option<Nonterminal>
-            = n:nonterminal_declaration() { Some(n) }
-            / language_declaration() { None }
+        rule top_level_item() -> TopLevelItem
+            = n:nonterminal_declaration() { TopLevelItem::Nonterminal(n) }
+            / l:language_declaration() { TopLevelItem::Language(l) }
 
         // Language switch: "language English"
-        rule language_declaration()
-            = _ "language" ws() name:$((![' ' | '\t' | '\n' | '\r'] [_])+) _
+        rule language_declaration() -> String
+            = _ "language" ws() name:$((![' ' | '\t' | '\n' | '\r'] [_])+) _ { name.to_string() }
 
         // Whitespace within a line (spaces and tabs only)
         rule ws()
@@ -145,6 +456,10 @@ peg::parser! {
         // Whitespace including newlines (for between declarations)
         rule _()
             = quiet!{ ([' ' | '\t' | '\n' | '\r'] / comment())* }
+
+        // Comments: [ ... ]
+        rule comment()
+            = "[" $((![']'] [_])*) "]"
 
         // A nonterminal declaration: either internal or with productions.
         rule nonterminal_declaration() -> Nonterminal
@@ -177,49 +492,113 @@ peg::parser! {
         rule production_list() -> Vec<Production>
             = p:production() rest:(_ "|" _ p2:production() { p2 })* _ "|"?
               {
-                  let mut v = vec![p];
-                  v.extend(rest);
+                  let mut v = Vec::new();
+                  if let Some(p) = p { v.push(p); }
+                  v.extend(rest.into_iter().flatten());
                   v
               }
 
-        // A single production: a sequence of tokens
+        // A single production: a sequence of elements.
         // Fails if the next content looks like a new nonterminal declaration.
-        rule production() -> Production
-            = !nonterminal_start() tokens:(ws() token:production_token() { token })+
-              { Production { tokens } }
+        rule production() -> Option<Production>
+            = !nonterminal_start() elems:production_element()* { resolve_elements(elems) }
 
         // Check if the next content looks like a nonterminal declaration start.
         rule nonterminal_start()
             = "<" n:$((!['>'] [_])+) ">" ws() ("::=" / "internal")
 
-        // A single token in a production
+        // One element of a production: a token, brace marker, or match number.
+        rule production_element() -> ProductionElement
+            = ws() n:production_match_number() { ProductionElement::MatchNumber(n) }
+            / ws() "{" { ProductionElement::OpenBrace }
+            / ws() "}" { ProductionElement::CloseBrace }
+            / ws() token:production_token() { ProductionElement::Token(token) }
+
+        // Production match number: /a/ to /z/ and /aa/ to /zz/.
+        rule production_match_number() -> u8
+            = "/" c:['a'..='z'] "/" { (c as u8) - b'a' }
+            / "/" a:['a'..='z'] b:['a'..='z'] "/" { (a as u8) - b'a' + 26 + (b as u8 - b'a') }
+
+        // A token with optional modifiers.
         rule production_token() -> ProductionToken
-            = negation_modifier()
-            / wildcard()
-            / sub_nonterminal()
-            / fixed_word()
+            = negated:("^" { true })*
+              lower:("_" { true })*
+              "\\" ws() t:escaped_core_token()
+              {
+                  ProductionToken {
+                      negated: !negated.is_empty(),
+                      disallow_unexpected_upper: !lower.is_empty(),
+                      escaped: true,
+                      ..t
+                  }
+              }
+            / negated:("^" { true })*
+              lower:("_" { true })*
+              ws() t:plain_core_token()
+              {
+                  ProductionToken {
+                      negated: !negated.is_empty(),
+                      disallow_unexpected_upper: !lower.is_empty(),
+                      escaped: false,
+                      ..t
+                  }
+              }
 
-        // Negation modifier: ^
-        rule negation_modifier() -> ProductionToken
-            = "^" { ProductionToken::FixedWord("^".to_string()) }
+        // Core of a plain (non-escaped) token: sub-nonterminal, wildcard, or word
+        // (which may contain slash alternatives).
+        rule plain_core_token() -> ProductionToken
+            = t:sub_nonterminal_with_result() { t }
+            / w:wildcard() { new_production_token(w) }
+            / w:plain_word() { w }
 
-        // Wildcard: ... or ......
-        rule wildcard() -> ProductionToken
-            = "......" { ProductionToken::Wildcard }
-            / "..." { ProductionToken::Wildcard }
+        // Core of an escaped token: only fixed words (slash alternatives allowed),
+        // with wildcard recognition suppressed.
+        rule escaped_core_token() -> ProductionToken
+            = w:escaped_word() { w }
 
-        // Sub-nonterminal reference: <name>
-        rule sub_nonterminal() -> ProductionToken
-            = n:nonterminal_name() { ProductionToken::SubNonterminal(n) }
+        // Sub-nonterminal, optionally followed by a result number.
+        rule sub_nonterminal_with_result() -> ProductionToken
+            = n:nonterminal_name() r:result_number()?
+              {
+                  ProductionToken {
+                      category: ProductionTokenCategory::SubNonterminal(n),
+                      result_index: r,
+                      ..new_production_token(ProductionTokenCategory::FixedWord(String::new()))
+                  }
+              }
 
-        // A fixed word: any non-whitespace sequence that isn't a special token.
-        rule fixed_word() -> ProductionToken
-            = !"|" w:$((![' ' | '\t' | '\n' | '\r'] [_])+)
-              { ProductionToken::FixedWord(w.to_string()) }
+        // Result number suffix: ? N
+        rule result_number() -> usize
+            = "?" ws() n:$(['0'..='9']+) { n.parse().unwrap() }
 
-        // Comments: [ ... ]
-        rule comment()
-            = "[" $((![']'] [_])*) "]"
+        // Wildcards. The negative lookahead ensures we don't split a longer word
+        // (e.g. "****" must remain a fixed word, not "***" + "*").
+        rule wildcard() -> ProductionTokenCategory
+            = "......" !continuation_char() { ProductionTokenCategory::BalancedMultipleWildcard }
+            / "..." !continuation_char() { ProductionTokenCategory::MultipleWildcard }
+            / "###" !continuation_char() { ProductionTokenCategory::SingleWildcard }
+            / "***" !continuation_char() { ProductionTokenCategory::PossiblyEmptyWildcard }
+
+        // A plain word. Since `/` is not word-breaking punctuation in Preform,
+        // a word may contain internal slashes that create alternatives.
+        rule plain_word() -> ProductionToken
+            = w:$(plain_word_char()+) { split_word(w) }
+
+        // An escaped word. Wildcard recognition is suppressed, but slash
+        // alternatives still work.
+        rule escaped_word() -> ProductionToken
+            = w:$(escaped_word_char()+) { split_word(w) }
+
+        rule plain_word_char() -> ()
+            = ![' ' | '\t' | '\n' | '\r' | '|' | '{' | '}' | '[' | ']' | '_' | '^' | '?' | '&' | '\\' | '<' | '>'] [_]
+
+        rule escaped_word_char() -> ()
+            = ![' ' | '\t' | '\n' | '\r' | '|'] [_]
+
+        // A character that would continue a word after a wildcard. Wildcards must
+        // not match as a prefix of a longer word.
+        rule continuation_char() -> ()
+            = plain_word_char()
 
         // End of input
         rule EOI()
@@ -261,6 +640,14 @@ mod tests {
     }
 
     #[test]
+    fn test_language_declaration() {
+        let source = "language English\n\n<test> internal";
+        let grammar = parse_preform_grammar(source).unwrap();
+        assert_eq!(grammar.language.as_deref(), Some("English"));
+        assert_eq!(grammar.nonterminals.len(), 1);
+    }
+
+    #[test]
     fn test_nonterminal_with_productions() {
         let source = "<greeting> ::= hello world | hi there";
         let grammar = parse_preform_grammar(source).unwrap();
@@ -270,37 +657,50 @@ mod tests {
         assert!(!nt.internal);
         assert_eq!(nt.productions.len(), 2);
 
-        // First production: hello world
         assert_eq!(nt.productions[0].tokens.len(), 2);
         assert_eq!(
-            nt.productions[0].tokens[0],
-            ProductionToken::FixedWord("hello".to_string())
+            nt.productions[0].tokens[0].category,
+            ProductionTokenCategory::FixedWord("hello".to_string())
         );
         assert_eq!(
-            nt.productions[0].tokens[1],
-            ProductionToken::FixedWord("world".to_string())
+            nt.productions[0].tokens[1].category,
+            ProductionTokenCategory::FixedWord("world".to_string())
         );
 
-        // Second production: hi there
         assert_eq!(nt.productions[1].tokens.len(), 2);
         assert_eq!(
-            nt.productions[1].tokens[0],
-            ProductionToken::FixedWord("hi".to_string())
+            nt.productions[1].tokens[0].category,
+            ProductionTokenCategory::FixedWord("hi".to_string())
         );
         assert_eq!(
-            nt.productions[1].tokens[1],
-            ProductionToken::FixedWord("there".to_string())
+            nt.productions[1].tokens[1].category,
+            ProductionTokenCategory::FixedWord("there".to_string())
         );
     }
 
     #[test]
-    fn test_wildcard() {
-        let source = "<anything> ::= ...";
+    fn test_wildcards() {
+        let cases = [
+            ("<a> ::= ...", ProductionTokenCategory::MultipleWildcard),
+            ("<a> ::= ......", ProductionTokenCategory::BalancedMultipleWildcard),
+            ("<a> ::= ###", ProductionTokenCategory::SingleWildcard),
+            ("<a> ::= ***", ProductionTokenCategory::PossiblyEmptyWildcard),
+        ];
+        for (source, expected) in cases {
+            let grammar = parse_preform_grammar(source).unwrap();
+            assert_eq!(grammar.nonterminals[0].productions[0].tokens[0].category, expected);
+        }
+    }
+
+    #[test]
+    fn test_four_asterisks_is_fixed_word() {
+        let source = "<row> ::= ****";
         let grammar = parse_preform_grammar(source).unwrap();
-        let nt = &grammar.nonterminals[0];
-        assert_eq!(nt.productions.len(), 1);
-        assert_eq!(nt.productions[0].tokens.len(), 1);
-        assert_eq!(nt.productions[0].tokens[0], ProductionToken::Wildcard);
+        assert_eq!(grammar.nonterminals[0].productions[0].tokens.len(), 1);
+        assert_eq!(
+            grammar.nonterminals[0].productions[0].tokens[0].category,
+            ProductionTokenCategory::FixedWord("****".to_string())
+        );
     }
 
     #[test]
@@ -311,16 +711,16 @@ mod tests {
         assert_eq!(nt.productions.len(), 1);
         assert_eq!(nt.productions[0].tokens.len(), 3);
         assert_eq!(
-            nt.productions[0].tokens[0],
-            ProductionToken::SubNonterminal("subject".to_string())
+            nt.productions[0].tokens[0].category,
+            ProductionTokenCategory::SubNonterminal("subject".to_string())
         );
         assert_eq!(
-            nt.productions[0].tokens[1],
-            ProductionToken::SubNonterminal("verb".to_string())
+            nt.productions[0].tokens[1].category,
+            ProductionTokenCategory::SubNonterminal("verb".to_string())
         );
         assert_eq!(
-            nt.productions[0].tokens[2],
-            ProductionToken::SubNonterminal("object".to_string())
+            nt.productions[0].tokens[2].category,
+            ProductionTokenCategory::SubNonterminal("object".to_string())
         );
     }
 
@@ -330,15 +730,16 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let nt = &grammar.nonterminals[0];
         assert_eq!(nt.productions.len(), 1);
-        assert_eq!(nt.productions[0].tokens.len(), 3);
+        let tokens = &nt.productions[0].tokens;
+        assert_eq!(tokens.len(), 3);
         assert_eq!(
-            nt.productions[0].tokens[0],
-            ProductionToken::FixedWord("to".to_string())
+            tokens[0].category,
+            ProductionTokenCategory::FixedWord("to".to_string())
         );
-        assert_eq!(nt.productions[0].tokens[1], ProductionToken::Wildcard);
+        assert_eq!(tokens[1].category, ProductionTokenCategory::MultipleWildcard);
         assert_eq!(
-            nt.productions[0].tokens[2],
-            ProductionToken::SubNonterminal("action".to_string())
+            tokens[2].category,
+            ProductionTokenCategory::SubNonterminal("action".to_string())
         );
     }
 
@@ -363,14 +764,17 @@ mod tests {
         assert_eq!(nt.productions.len(), 2);
         assert_eq!(nt.productions[0].tokens.len(), 3);
         assert_eq!(
-            nt.productions[0].tokens[0],
-            ProductionToken::FixedWord("chapter".to_string())
+            nt.productions[0].tokens[0].category,
+            ProductionTokenCategory::FixedWord("chapter".to_string())
         );
         assert_eq!(
-            nt.productions[0].tokens[1],
-            ProductionToken::FixedWord(":".to_string())
+            nt.productions[0].tokens[1].category,
+            ProductionTokenCategory::FixedWord(":".to_string())
         );
-        assert_eq!(nt.productions[0].tokens[2], ProductionToken::Wildcard);
+        assert_eq!(
+            nt.productions[0].tokens[2].category,
+            ProductionTokenCategory::MultipleWildcard
+        );
     }
 
     #[test]
@@ -395,6 +799,7 @@ mod tests {
     fn test_empty_source() {
         let grammar = parse_preform_grammar("").unwrap();
         assert!(grammar.nonterminals.is_empty());
+        assert!(grammar.language.is_none());
     }
 
     #[test]
@@ -405,31 +810,28 @@ mod tests {
     }
 
     #[test]
-    fn test_six_dot_wildcard() {
-        let source = "<balanced> ::= ......";
-        let grammar = parse_preform_grammar(source).unwrap();
-        let nt = &grammar.nonterminals[0];
-        assert_eq!(nt.productions[0].tokens.len(), 1);
-        assert_eq!(nt.productions[0].tokens[0], ProductionToken::Wildcard);
-    }
-
-    #[test]
     fn test_punctuation_fixed_words() {
-        let source = "<entry> ::= * | ** | ***";
+        // `*` and `**` are fixed words; `***` is a possibly-empty wildcard;
+        // `****` is a fixed word.
+        let source = "<entry> ::= * | ** | *** | ****";
         let grammar = parse_preform_grammar(source).unwrap();
         let nt = &grammar.nonterminals[0];
-        assert_eq!(nt.productions.len(), 3);
+        assert_eq!(nt.productions.len(), 4);
         assert_eq!(
-            nt.productions[0].tokens[0],
-            ProductionToken::FixedWord("*".to_string())
+            nt.productions[0].tokens[0].category,
+            ProductionTokenCategory::FixedWord("*".to_string())
         );
         assert_eq!(
-            nt.productions[1].tokens[0],
-            ProductionToken::FixedWord("**".to_string())
+            nt.productions[1].tokens[0].category,
+            ProductionTokenCategory::FixedWord("**".to_string())
         );
         assert_eq!(
-            nt.productions[2].tokens[0],
-            ProductionToken::FixedWord("***".to_string())
+            nt.productions[2].tokens[0].category,
+            ProductionTokenCategory::PossiblyEmptyWildcard
+        );
+        assert_eq!(
+            nt.productions[3].tokens[0].category,
+            ProductionTokenCategory::FixedWord("****".to_string())
         );
     }
 
@@ -440,12 +842,12 @@ mod tests {
         let nt = &grammar.nonterminals[0];
         assert_eq!(nt.productions.len(), 2);
         assert_eq!(
-            nt.productions[0].tokens[1],
-            ProductionToken::FixedWord(":".to_string())
+            nt.productions[0].tokens[1].category,
+            ProductionTokenCategory::FixedWord(":".to_string())
         );
         assert_eq!(
-            nt.productions[1].tokens[1],
-            ProductionToken::FixedWord("-".to_string())
+            nt.productions[1].tokens[1].category,
+            ProductionTokenCategory::FixedWord("-".to_string())
         );
     }
 
@@ -473,6 +875,153 @@ mod tests {
     }
 
     #[test]
+    fn test_negation_modifier() {
+        let source = "<test> ::= ^<name>";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let token = &grammar.nonterminals[0].productions[0].tokens[0];
+        assert!(token.negated);
+        assert_eq!(
+            token.category,
+            ProductionTokenCategory::SubNonterminal("name".to_string())
+        );
+        assert_eq!(format!("{}", token), "^<name>");
+    }
+
+    #[test]
+    fn test_lower_case_modifier() {
+        let source = "<test> ::= , _and <rest>";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let tokens = &grammar.nonterminals[0].productions[0].tokens;
+        assert_eq!(tokens[0].category, ProductionTokenCategory::FixedWord(",".to_string()));
+        assert!(tokens[1].disallow_unexpected_upper);
+        assert_eq!(
+            tokens[1].category,
+            ProductionTokenCategory::FixedWord("and".to_string())
+        );
+    }
+
+    #[test]
+    fn test_alternatives() {
+        let source = "<test> ::= something/anything | it/he/she";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let nt = &grammar.nonterminals[0];
+        assert_eq!(nt.productions.len(), 2);
+
+        let t1 = &nt.productions[0].tokens[0];
+        assert_eq!(
+            t1.category,
+            ProductionTokenCategory::FixedWord("something".to_string())
+        );
+        assert_eq!(t1.alternatives.len(), 1);
+        assert_eq!(
+            t1.alternatives[0],
+            ProductionTokenCategory::FixedWord("anything".to_string())
+        );
+
+        let t2 = &nt.productions[1].tokens[0];
+        assert_eq!(
+            t2.category,
+            ProductionTokenCategory::FixedWord("it".to_string())
+        );
+        assert_eq!(t2.alternatives.len(), 2);
+        assert_eq!(
+            t2.alternatives[0],
+            ProductionTokenCategory::FixedWord("he".to_string())
+        );
+        assert_eq!(
+            t2.alternatives[1],
+            ProductionTokenCategory::FixedWord("she".to_string())
+        );
+    }
+
+    #[test]
+    fn test_escaped_token() {
+        let source = "<test> ::= \\{ \\} | \\***";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let nt = &grammar.nonterminals[0];
+        assert_eq!(nt.productions.len(), 2);
+
+        assert!(nt.productions[0].tokens[0].escaped);
+        assert_eq!(
+            nt.productions[0].tokens[0].category,
+            ProductionTokenCategory::FixedWord("{".to_string())
+        );
+        assert!(nt.productions[0].tokens[1].escaped);
+        assert_eq!(
+            nt.productions[0].tokens[1].category,
+            ProductionTokenCategory::FixedWord("}".to_string())
+        );
+
+        assert!(nt.productions[1].tokens[0].escaped);
+        assert_eq!(
+            nt.productions[1].tokens[0].category,
+            ProductionTokenCategory::FixedWord("***".to_string())
+        );
+    }
+
+    #[test]
+    fn test_production_match_number() {
+        let source = "<article> ::= /a/ a/an | /d/ some";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let nt = &grammar.nonterminals[0];
+        assert_eq!(nt.productions.len(), 2);
+        assert_eq!(nt.productions[0].match_number, Some(0));
+        assert_eq!(nt.productions[1].match_number, Some(3));
+        assert_eq!(nt.productions[0].tokens[0].category, ProductionTokenCategory::FixedWord("a".to_string()));
+    }
+
+    #[test]
+    fn test_braced_word_ranges() {
+        let source = "<test> ::= {another} | {each other in groups}";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let nt = &grammar.nonterminals[0];
+        assert_eq!(nt.productions.len(), 2);
+
+        let p1 = &nt.productions[0];
+        assert_eq!(p1.tokens.len(), 1);
+        assert_eq!(p1.tokens[0].range_start, Some(1));
+        assert_eq!(p1.tokens[0].range_end, Some(1));
+
+        let p2 = &nt.productions[1];
+        assert_eq!(p2.tokens.len(), 4);
+        assert_eq!(p2.tokens[0].range_start, Some(1));
+        assert!(p2.tokens[0].range_end.is_none());
+        assert!(p2.tokens[1].range_start.is_none());
+        assert!(p2.tokens[1].range_end.is_none());
+        assert!(p2.tokens[2].range_start.is_none());
+        assert!(p2.tokens[2].range_end.is_none());
+        assert!(p2.tokens[3].range_start.is_none());
+        assert_eq!(p2.tokens[3].range_end, Some(1));
+    }
+
+    #[test]
+    fn test_result_number() {
+        let source = "<test> ::= <foo>? 1 <bar>";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let tokens = &grammar.nonterminals[0].productions[0].tokens;
+        assert_eq!(tokens[0].result_index, Some(1));
+        assert_eq!(tokens[1].result_index, None);
+    }
+
+    #[test]
+    fn test_display_roundtrip_full_featured() {
+        let source = concat!(
+            "language English\n\n",
+            "<a> internal\n\n",
+            "<b> ::=\n",
+            "    ^<x> |\n",
+            "    {each other in groups} |\n",
+            "    /a/ _and <y> |\n",
+            "    \\{ \\} |\n",
+            "    ### ... ***\n"
+        );
+        let grammar = parse_preform_grammar(source).unwrap();
+        let displayed = format!("{}", grammar);
+        let reparsed = parse_preform_grammar(&displayed).unwrap();
+        assert_eq!(grammar, reparsed);
+    }
+
+    #[test]
     fn test_load_real_syntax_preform() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -488,10 +1037,48 @@ mod tests {
             "expected ~720 nonterminals, got {}",
             grammar.nonterminals.len()
         );
+        assert_eq!(grammar.language.as_deref(), Some("English"));
+
         // Verify a few known nonterminals are present.
         let names: Vec<&str> = grammar.nonterminals.iter().map(|n| n.name.as_str()).collect();
         assert!(names.contains(&"quoted-text"), "missing quoted-text");
         assert!(names.contains(&"table-column-heading"), "missing table-column-heading");
         assert!(names.contains(&"extension-documentation-heading"), "missing extension-documentation-heading");
+
+        // Sanity-check row-of-asterisks: escaped `***` is a literal fixed word;
+        // `****` is a fixed word; `*` and `**` are fixed words.
+        let row = grammar.nonterminals.iter().find(|n| n.name == "row-of-asterisks").unwrap();
+        assert_eq!(row.productions.len(), 4);
+        assert_eq!(row.productions[0].tokens[0].category, ProductionTokenCategory::FixedWord("*".to_string()));
+        assert_eq!(row.productions[1].tokens[0].category, ProductionTokenCategory::FixedWord("**".to_string()));
+        assert!(row.productions[2].tokens[0].escaped);
+        assert_eq!(row.productions[2].tokens[0].category, ProductionTokenCategory::FixedWord("***".to_string()));
+        assert_eq!(row.productions[3].tokens[0].category, ProductionTokenCategory::FixedWord("****".to_string()));
+
+        // Sanity-check escaped braces in s-literal-list.
+        let lit = grammar.nonterminals.iter().find(|n| n.name == "s-literal-list").unwrap();
+        let first = &lit.productions[0].tokens[0];
+        assert!(first.escaped);
+        assert_eq!(first.category, ProductionTokenCategory::FixedWord("{".to_string()));
+
+        // Sanity-check a negated sub-nonterminal.
+        let np = grammar.nonterminals.iter().find(|n| n.name == "s-noun-phrase").unwrap();
+        let negated = np.productions.iter().find(|p| {
+            p.tokens.iter().any(|t| t.negated)
+        }).expect("expected a negated production");
+        assert!(negated.tokens.iter().any(|t| t.negated && matches!(t.category, ProductionTokenCategory::SubNonterminal(_))));
+
+        // Sanity-check a `_` modifier with slash alternatives.
+        let tail = grammar.nonterminals.iter().find(|n| n.name == "equation-where-tail").unwrap();
+        let and_token = tail.productions.iter()
+            .flat_map(|p| &p.tokens)
+            .find(|t| {
+                t.disallow_unexpected_upper
+                    && t.category == ProductionTokenCategory::FixedWord(",".to_string())
+                    && t.alternatives.iter().any(|a| *a == ProductionTokenCategory::FixedWord("and".to_string()))
+            })
+            .expect("expected a `_,/and` token");
+        assert_eq!(and_token.category, ProductionTokenCategory::FixedWord(",".to_string()));
+        assert!(and_token.alternatives.iter().any(|a| *a == ProductionTokenCategory::FixedWord("and".to_string())));
     }
 }

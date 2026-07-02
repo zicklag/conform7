@@ -171,7 +171,7 @@ impl InternalNonterminal for PreformNonterminal {
 }
 
 // ---------------------------------------------------------------------------
-// InternalRegistry::basic()
+// InternalRegistry::new() (basic internals)
 // ---------------------------------------------------------------------------
 
 impl InternalRegistry {
@@ -181,7 +181,7 @@ impl InternalRegistry {
     ///
     /// These are the names used in the real `Syntax.preform` grammar file.
     pub fn basic() -> Self {
-        let mut registry = InternalRegistry::new();
+        let mut registry = InternalRegistry::empty();
         registry.register("if-start-of-paragraph", Box::new(IfStartOfParagraph));
         registry.register("if-not-cap", Box::new(IfNotCap));
         registry.register("preform-nonterminal", Box::new(PreformNonterminal));
@@ -203,12 +203,10 @@ mod tests {
     fn test_if_start_of_paragraph_at_start() {
         let grammar = parse_preform_grammar("<if-start-of-paragraph> internal").unwrap();
         let words = &["hello", "world"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: true,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: true, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-start-of-paragraph", Wording::new(0, 2));
         assert!(m.is_some(), "should match at paragraph start");
         assert_eq!(m.unwrap().internal.unwrap().payload, InternalPayload::None);
@@ -218,12 +216,10 @@ mod tests {
     fn test_if_start_of_paragraph_fails_mid_paragraph() {
         let grammar = parse_preform_grammar("<if-start-of-paragraph> internal").unwrap();
         let words = &["hello", "world"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-start-of-paragraph", Wording::new(0, 2));
         assert!(m.is_none(), "should fail mid-paragraph");
     }
@@ -236,12 +232,10 @@ mod tests {
     fn test_if_not_cap_lowercase() {
         let grammar = parse_preform_grammar("<if-not-cap> internal").unwrap();
         let words = &["apple", "the"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::new(0, 1));
         assert!(m.is_some(), "'apple' should match if-not-cap");
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::new(1, 2));
@@ -252,12 +246,10 @@ mod tests {
     fn test_if_not_cap_uppercase() {
         let grammar = parse_preform_grammar("<if-not-cap> internal").unwrap();
         let words = &["Apple", "The"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::new(0, 1));
         assert!(m.is_none(), "'Apple' should fail if-not-cap");
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::new(1, 2));
@@ -268,12 +260,10 @@ mod tests {
     fn test_if_not_cap_empty() {
         let grammar = parse_preform_grammar("<if-not-cap> internal").unwrap();
         let words: &[&str] = &[];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::EMPTY);
         assert!(m.is_none(), "empty wording should fail if-not-cap");
     }
@@ -294,12 +284,10 @@ mod tests {
 
         // if-not-cap at zero width (wording.start=0, wording.end=0) should
         // peek at word 0 ("a") and succeed because "a" is lowercase.
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "if-not-cap", Wording::new(0, 0));
         assert!(m.is_some(), "if-not-cap should succeed at zero width on lowercase 'a'");
 
@@ -319,12 +307,10 @@ mod tests {
         let source = "<preform-nonterminal> internal\n<foo> internal\n<bar> ::= x";
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["<foo>", "<bar>"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
 
         let m = match_nonterminal_impl(&ctx, &registry, "preform-nonterminal", Wording::new(0, 1));
         assert!(m.is_some(), "<foo> should match when <foo> is declared");
@@ -346,12 +332,10 @@ mod tests {
         let source = "<preform-nonterminal> internal\n<foo> internal";
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["<baz>"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "preform-nonterminal", Wording::new(0, 1));
         assert!(m.is_none(), "<baz> should fail when not declared");
     }
@@ -361,12 +345,10 @@ mod tests {
         let source = "<preform-nonterminal> internal\n<foo> internal";
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["foo"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "preform-nonterminal", Wording::new(0, 1));
         assert!(m.is_none(), "'foo' should fail (not in <name> format)");
     }
@@ -376,12 +358,10 @@ mod tests {
         let source = "<preform-nonterminal> internal\n<foo> internal\n<bar> ::= x";
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["<foo>", "<bar>"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "preform-nonterminal", Wording::new(0, 2));
         assert!(m.is_none(), "should fail on multi-word wording");
     }
@@ -400,20 +380,16 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["chapter", "1", "-", "X"];
 
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: true,
-        };
-        let registry = InternalRegistry::basic();
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: true, verbs_registry: None };
+        let registry = InternalRegistry::new();
         let m = match_nonterminal_impl(&ctx, &registry, "dividing-sentence", Wording::new(0, 4));
         assert!(m.is_some(), "dividing-sentence should match at paragraph start");
 
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
         let m = match_nonterminal_impl(&ctx, &registry, "dividing-sentence", Wording::new(0, 4));
         assert!(m.is_none(), "dividing-sentence should fail without paragraph start");
     }
@@ -472,34 +448,428 @@ mod tests {
             .expect("failed to parse Syntax.preform");
 
         let words = &["chapter", "1", "-", "X"];
-        let registry = InternalRegistry::basic();
+        let registry = InternalRegistry::new();
 
         // <dividing-sentence> should match at paragraph start.
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: true,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: true, verbs_registry: None };
         let m = match_nonterminal_impl(&ctx, &registry, "dividing-sentence", Wording::new(0, 4));
         assert!(m.is_some(), "dividing-sentence should match 'chapter 1 - X' at paragraph start");
 
         // <dividing-sentence> should fail without paragraph start.
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
         let m = match_nonterminal_impl(&ctx, &registry, "dividing-sentence", Wording::new(0, 4));
         assert!(m.is_none(), "dividing-sentence should fail 'chapter 1 - X' without paragraph start");
 
         // <heading> should match "chapter 1 - X" via the real grammar.
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: true,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: true, verbs_registry: None };
         let m = match_nonterminal_impl(&ctx, &registry, "heading", Wording::new(0, 4));
         assert!(m.is_some(), "heading should match 'chapter 1 - X' via real grammar");
+    }
+
+    // -----------------------------------------------------------------------
+    // <certainty> tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_certainty_always() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["always"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'always'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(2)
+        );
+    }
+
+    #[test]
+    fn test_certainty_certainly() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["certainly"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'certainly'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(2)
+        );
+    }
+
+    #[test]
+    fn test_certainty_usually() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["usually"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'usually'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(1)
+        );
+    }
+
+    #[test]
+    fn test_certainty_normally() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["normally"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'normally'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(1)
+        );
+    }
+
+    #[test]
+    fn test_certainty_rarely() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["rarely"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'rarely'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(-1)
+        );
+    }
+
+    #[test]
+    fn test_certainty_seldom() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["seldom"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'seldom'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(-1)
+        );
+    }
+
+    #[test]
+    fn test_certainty_never() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["never"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'never'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(-2)
+        );
+    }
+
+    #[test]
+    fn test_certainty_initially() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["initially"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "certainty should match 'initially'");
+        assert_eq!(
+            m.unwrap().internal.unwrap().payload,
+            InternalPayload::Integer(3)
+        );
+    }
+
+    #[test]
+    fn test_certainty_fails_unknown_word() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["xyzzy"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 1));
+        assert!(m.is_none(), "certainty should fail on 'xyzzy'");
+    }
+
+    #[test]
+    fn test_certainty_fails_multi_word() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<certainty> internal").unwrap();
+        let words = &["always", "usually"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "certainty", Wording::new(0, 2));
+        assert!(m.is_none(), "certainty should fail on multi-word wording");
+    }
+
+    // -----------------------------------------------------------------------
+    // <pre-verb-rc-marker> tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pre_verb_rc_marker_who() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<pre-verb-rc-marker> internal").unwrap();
+        let words = &["who"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-rc-marker", Wording::new(0, 1));
+        assert!(m.is_some(), "pre-verb-rc-marker should match 'who'");
+    }
+
+    #[test]
+    fn test_pre_verb_rc_marker_which() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<pre-verb-rc-marker> internal").unwrap();
+        let words = &["which"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-rc-marker", Wording::new(0, 1));
+        assert!(m.is_some(), "pre-verb-rc-marker should match 'which'");
+    }
+
+    #[test]
+    fn test_pre_verb_rc_marker_that() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<pre-verb-rc-marker> internal").unwrap();
+        let words = &["that"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-rc-marker", Wording::new(0, 1));
+        assert!(m.is_some(), "pre-verb-rc-marker should match 'that'");
+    }
+
+    #[test]
+    fn test_pre_verb_rc_marker_fails_unknown() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<pre-verb-rc-marker> internal").unwrap();
+        let words = &["xyzzy"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-rc-marker", Wording::new(0, 1));
+        assert!(m.is_none(), "pre-verb-rc-marker should fail on 'xyzzy'");
+    }
+
+    // -----------------------------------------------------------------------
+    // <nonimperative-verb> stub tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_nonimperative_verb_stub_fails() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<nonimperative-verb> internal").unwrap();
+        let words = &["is"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "nonimperative-verb", Wording::new(0, 1));
+        assert!(m.is_none(), "nonimperative-verb stub should fail on 'is'");
+    }
+
+    // -----------------------------------------------------------------------
+    // <negated-noncopular-verb-present> stub tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_negated_noncopular_verb_present_stub_fails() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let grammar = parse_preform_grammar("<negated-noncopular-verb-present> internal").unwrap();
+        let words = &["does", "not"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "negated-noncopular-verb-present", Wording::new(0, 2));
+        assert!(m.is_none(), "negated-noncopular-verb-present stub should fail");
+    }
+
+    // -----------------------------------------------------------------------
+    // <pre-verb-certainty> tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pre_verb_certainty_always() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<pre-verb-certainty> internal").unwrap();
+        let words = &["always"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "pre-verb-certainty should match 'always'");
+    }
+
+    #[test]
+    fn test_pre_verb_certainty_fails_unknown() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<pre-verb-certainty> internal").unwrap();
+        let words = &["xyzzy"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "pre-verb-certainty", Wording::new(0, 1));
+        assert!(m.is_none(), "pre-verb-certainty should fail on 'xyzzy'");
+    }
+
+    // -----------------------------------------------------------------------
+    // <post-verb-certainty> tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_post_verb_certainty_never() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<post-verb-certainty> internal").unwrap();
+        let words = &["never"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "post-verb-certainty", Wording::new(0, 1));
+        assert!(m.is_some(), "post-verb-certainty should match 'never'");
+    }
+
+    #[test]
+    fn test_post_verb_certainty_fails_unknown() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let grammar = parse_preform_grammar("<post-verb-certainty> internal").unwrap();
+        let words = &["xyzzy"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "post-verb-certainty", Wording::new(0, 1));
+        assert!(m.is_none(), "post-verb-certainty should fail on 'xyzzy'");
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration: certainty through matching engine
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_certainty_through_matching_engine() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let source = concat!(
+            "<certainty> internal\n",
+            "<test> ::= <certainty> cat\n",
+        );
+        let grammar = parse_preform_grammar(source).unwrap();
+        let registry = InternalRegistry::linguistics();
+        let words = &["always", "cat"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let m = match_nonterminal_impl(&ctx, &registry, "test", Wording::new(0, 2));
+        assert!(m.is_some(), "<certainty> cat should match 'always cat'");
+    }
+
+    #[test]
+    fn test_certainty_through_matching_engine_fails() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let source = concat!(
+            "<certainty> internal\n",
+            "<test> ::= <certainty> cat\n",
+        );
+        let grammar = parse_preform_grammar(source).unwrap();
+        let registry = InternalRegistry::linguistics();
+        let words = &["xyzzy", "cat"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let m = match_nonterminal_impl(&ctx, &registry, "test", Wording::new(0, 2));
+        assert!(m.is_none(), "<certainty> cat should fail on 'xyzzy cat'");
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration: pre-verb-rc-marker through matching engine
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pre_verb_rc_marker_through_matching_engine() {
+        // Reference: services/linguistics-module/Chapter 3/Verbs.w
+        let source = concat!(
+            "<pre-verb-rc-marker> internal\n",
+            "<test> ::= <pre-verb-rc-marker> cat\n",
+        );
+        let grammar = parse_preform_grammar(source).unwrap();
+        let registry = InternalRegistry::linguistics();
+        let words = &["who", "cat"];
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
+        let m = match_nonterminal_impl(&ctx, &registry, "test", Wording::new(0, 2));
+        assert!(m.is_some(), "<pre-verb-rc-marker> cat should match 'who cat'");
+    }
+
+    // -----------------------------------------------------------------------
+    // Real grammar oracle: certainty in Syntax.preform
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_real_syntax_preform_has_certainty() {
+        // Reference: services/linguistics-module/Chapter 3/Adverbs of Certainty.w
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../gitignore/inform/inform7/Internal/Languages/English/Syntax.preform"
+        );
+        let source = std::fs::read_to_string(path)
+            .expect("failed to read Syntax.preform");
+        let grammar = parse_preform_grammar(&source)
+            .expect("failed to parse Syntax.preform");
+
+        let names: Vec<&str> = grammar.nonterminals.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"certainty"), "missing certainty");
+        assert!(names.contains(&"nonimperative-verb"), "missing nonimperative-verb");
+        assert!(names.contains(&"negated-noncopular-verb-present"), "missing negated-noncopular-verb-present");
+        assert!(names.contains(&"pre-verb-rc-marker"), "missing pre-verb-rc-marker");
+        assert!(names.contains(&"pre-verb-certainty"), "missing pre-verb-certainty");
+        assert!(names.contains(&"post-verb-certainty"), "missing post-verb-certainty");
     }
 }
 
@@ -580,11 +950,291 @@ impl InternalRegistry {
     ///
     /// These are the names used in the real `Syntax.preform` grammar file.
     pub fn linguistics() -> Self {
-        let mut registry = InternalRegistry::basic();
+        let mut registry = InternalRegistry::new();
         let (article, definite, indefinite) = make_article_internals();
         registry.register("article", Box::new(article));
         registry.register("definite-article", Box::new(definite));
         registry.register("indefinite-article", Box::new(indefinite));
+        registry.register("certainty", Box::new(CertaintyInternal));
+        registry.register("nonimperative-verb", Box::new(NonimperativeVerb));
+        registry.register("negated-noncopular-verb-present", Box::new(NegatedNoncopularVerbPresent));
+        registry.register("pre-verb-rc-marker", Box::new(PreVerbRcMarker));
+        registry.register("pre-verb-certainty", Box::new(PreVerbCertainty));
+        registry.register("post-verb-certainty", Box::new(PostVerbCertainty));
         registry
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <certainty>
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal that matches certainty adverbs and returns the
+/// corresponding certainty level.
+///
+/// Matches:
+/// - `always`/`certainly` → `CERTAIN_CE` (2)
+/// - `usually`/`normally` → `LIKELY_CE` (1)
+/// - `rarely`/`seldom` → `UNLIKELY_CE` (-1)
+/// - `never` → `IMPOSSIBLE_CE` (-2)
+/// - `initially` → `INITIALLY_CE` (3)
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Adverbs of Certainty.w`
+#[derive(Clone, Debug)]
+pub struct CertaintyInternal;
+
+impl InternalNonterminal for CertaintyInternal {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        if wording.len() != 1 {
+            return None;
+        }
+        let word_idx = wording.start as usize;
+        let word = ctx.word_text.get(word_idx)?;
+        let level = match word.to_lowercase().as_str() {
+            "always" | "certainly" => 2,  // CERTAIN_CE
+            "usually" | "normally" => 1,  // LIKELY_CE
+            "rarely" | "seldom" => -1,    // UNLIKELY_CE
+            "never" => -2,                // IMPOSSIBLE_CE
+            "initially" => 3,             // INITIALLY_CE
+            _ => return None,
+        };
+        Some(InternalResult {
+            payload: InternalPayload::Integer(level),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <nonimperative-verb>
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal that matches known verb usages.
+///
+/// Takes a wording (single word or multi-word verb phrase) and looks it up
+/// in the verb usage search list. Returns a match if the wording matches
+/// any known verb usage text, with the verb usage reference as the payload.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Verbs.w` —
+///   the verb usage search list and `<nonimperative-verb>` internal NT.
+/// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+///   used by the viability map calculation.
+#[derive(Clone, Debug)]
+pub struct NonimperativeVerb;
+
+impl InternalNonterminal for NonimperativeVerb {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        let registry = ctx.verbs_registry?;
+        if wording.is_empty() {
+            return None;
+        }
+
+        // Get the word text for the wording range.
+        let start = wording.start as usize;
+        let end = wording.end as usize;
+        let word_slice = ctx.word_text.get(start..end)?;
+
+        // Walk the search list (longest first) to find a matching verb usage.
+        let mut current = registry.search_list_head;
+        while let Some(vu) = current {
+            if let Some(_consumed) = registry.parse_against_verb(word_slice, vu) {
+                // Found a match — return the verb usage reference as payload.
+                return Some(InternalResult {
+                    payload: InternalPayload::Integer(vu as i32),
+                });
+            }
+            current = registry.usages.get(vu)?.next_in_search_list;
+        }
+
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <negated-noncopular-verb-present>
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal for negated non-copular present tense verbs.
+///
+/// Matches patterns like `does not <verb>`, `do not <verb>`, `did not <verb>`,
+/// `doesn't <verb>`, `don't <verb>`, `didn't <verb>` where `<verb>` is a known
+/// non-copular verb usage.
+///
+/// Returns the word position after the full negated verb phrase as the payload.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Verbs.w` —
+///   the `<negated-noncopular-verb-present>` internal NT.
+/// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+///   used by the viability map calculation (score 3).
+#[derive(Clone, Debug)]
+pub struct NegatedNoncopularVerbPresent;
+
+impl InternalNonterminal for NegatedNoncopularVerbPresent {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        let registry = ctx.verbs_registry?;
+        if wording.len() < 3 {
+            return None;
+        }
+
+        let start = wording.start as usize;
+        let word_slice = ctx.word_text.get(start..)?;
+
+        // Check for negated patterns: "does not VERB", "do not VERB", "did not VERB",
+        // "doesn't VERB", "don't VERB", "didn't VERB"
+        let first_word = word_slice.first()?.to_lowercase();
+        let (neg_prefix_len, verb_offset) = match first_word.as_str() {
+            "does" | "do" | "did" => {
+                // Need at least 3 words: "does not VERB"
+                let second_word = word_slice.get(1).map(|w| w.to_lowercase());
+                if second_word.as_deref() == Some("not") {
+                    (2, 2)
+                } else {
+                    return None;
+                }
+            }
+            "doesn't" | "don't" | "didn't" => {
+                // Need at least 2 words: "doesn't VERB"
+                (1, 1)
+            }
+            _ => return None,
+        };
+
+        // The verb part must be a known non-copular verb usage.
+        let verb_word = word_slice.get(verb_offset)?;
+        let verb_word_lower = verb_word.to_lowercase();
+
+        // Check if the verb word is a copular verb (e.g., "is", "are", "was", "were", "be").
+        // Copular verbs are exempt from score 3.
+        let copular_words = ["is", "are", "was", "were", "be", "been", "being", "am"];
+        if copular_words.contains(&verb_word_lower.as_str()) {
+            return None;
+        }
+
+        // Walk the search list to find a matching verb usage for the verb word.
+        let verb_slice = &word_slice[verb_offset..];
+        let mut current = registry.search_list_head;
+        while let Some(vu) = current {
+            if let Some(consumed) = registry.parse_against_verb(verb_slice, vu) {
+                // Verify the verb is non-copular by checking if it's the copular verb.
+                if let Some(verb_ref) = registry.get_verb_from_usage(vu) {
+                    if registry.copular_verb == Some(verb_ref) {
+                        return None;
+                    }
+                }
+                // Return the total words consumed (neg prefix + verb).
+                let total_consumed = (neg_prefix_len + consumed) as i32;
+                return Some(InternalResult {
+                    payload: InternalPayload::Integer(total_consumed),
+                });
+            }
+            current = registry.usages.get(vu)?.next_in_search_list;
+        }
+
+        None
+    }
+}
+// ---------------------------------------------------------------------------
+// <pre-verb-rc-marker> (stub)
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal stub for relative clause markers before verbs.
+///
+/// Matches "who", "which", "that" as relative clause markers.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Verbs.w`
+#[derive(Clone, Debug)]
+pub struct PreVerbRcMarker;
+
+impl InternalNonterminal for PreVerbRcMarker {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        if wording.len() != 1 {
+            return None;
+        }
+        let word_idx = wording.start as usize;
+        let word = ctx.word_text.get(word_idx)?;
+        match word.to_lowercase().as_str() {
+            "who" | "which" | "that" => Some(InternalResult {
+                payload: InternalPayload::Article(word.to_string()),
+            }),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <pre-verb-certainty> (stub)
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal stub for certainty adverbs before the verb.
+///
+/// Delegates to `<certainty>` for now.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Adverbs of Certainty.w`
+#[derive(Clone, Debug)]
+pub struct PreVerbCertainty;
+
+impl InternalNonterminal for PreVerbCertainty {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        // Delegate to certainty matching.
+        if wording.len() != 1 {
+            return None;
+        }
+        let word_idx = wording.start as usize;
+        let word = ctx.word_text.get(word_idx)?;
+        let level = match word.to_lowercase().as_str() {
+            "always" | "certainly" => 2,
+            "usually" | "normally" => 1,
+            "rarely" | "seldom" => -1,
+            "never" => -2,
+            "initially" => 3,
+            _ => return None,
+        };
+        Some(InternalResult {
+            payload: InternalPayload::Integer(level),
+        })
+    }
+}
+// ---------------------------------------------------------------------------
+// <post-verb-certainty> (stub)
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal stub for certainty adverbs after the verb.
+///
+/// Delegates to `<certainty>` for now.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 3/Adverbs of Certainty.w`
+#[derive(Clone, Debug)]
+pub struct PostVerbCertainty;
+
+impl InternalNonterminal for PostVerbCertainty {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        // Same as pre-verb certainty for now.
+        if wording.len() != 1 {
+            return None;
+        }
+        let word_idx = wording.start as usize;
+        let word = ctx.word_text.get(word_idx)?;
+        let level = match word.to_lowercase().as_str() {
+            "always" | "certainly" => 2,
+            "usually" | "normally" => 1,
+            "rarely" | "seldom" => -1,
+            "never" => -2,
+            "initially" => 3,
+            _ => return None,
+        };
+        Some(InternalResult {
+            payload: InternalPayload::Integer(level),
+        })
     }
 }

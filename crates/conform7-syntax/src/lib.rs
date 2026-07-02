@@ -22,12 +22,18 @@
 //! - C reference: `services/syntax-module/Chapter 2/Node Types.w`
 
 pub mod heading;
+pub mod linguistics;
 pub mod lexer;
 pub mod node_type;
 pub mod parse_node;
-pub mod preform;
-pub mod linguistics;
 pub(crate) mod preform_internal;
+pub mod preform;
+pub mod linguistic_constants;
+pub mod stock_control;
+pub mod verb_conjugation;
+pub mod verbs;
+pub mod word_assemblage;
+pub mod verb_phrases;
 pub mod sentence;
 pub mod structural;
 pub mod syntax_kind;

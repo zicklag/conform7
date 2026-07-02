@@ -108,6 +108,7 @@ impl WordAssemblage {
     ///
     /// - C reference: `services/linguistics-module/Chapter 3/Verbs.w` —
     ///   `WordAssemblages::eq`.
+    #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &WordAssemblage) -> bool {
         self.words == other.words
     }

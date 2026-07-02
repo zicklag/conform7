@@ -1,51 +1,47 @@
 # Conform7 Project State (Updated)
 
-## Completed (Plans 1-10)
+## Completed (Plans 1-11)
 
 ### conform7-inter crate
-- InterTree, Package, SymbolsTable, Symbol data structures
-- Instruction constructors (30+ instruction types)
-- InterValue (two-word values, 11 formats)
-- InterType system (int32, int16, text, enum, struct, etc.)
-- Textual Inter reader/writer (.intert format)
-- Round-trip fidelity tests against the `inter` tool
+- Inter IR read/write with round-trip fidelity
 
 ### conform7-syntax crate
-- **SyntaxKind enum** — all I7 token/node types
 - **Lexer** — state machine tokenizer
 - **Sentence breaker** — FSM that splits tokens into sentences
-- **ParseNode** — tree data model with child/sibling/alternative links
+- **ParseNode** — tree data model
 - **NodeType** — enumerated node types with metadata
-- **Heading AST** — sentence-to-AST bridge for headings
-- **Structural AST** — sentence-to-AST bridge for Include/Use/Table/Equation
+- **Heading/Structural AST** — sentence-to-AST bridges
 - **Preform grammar parser** — parses Syntax.preform format
 - **Preform matching engine** — backtracking matcher with internal NT dispatch
-- **Internal nonterminal dispatch** — InternalRegistry, InternalNonterminal trait
-- **Three basic internal NTs**: `<if-start-of-paragraph>`, `<if-not-cap>`, `<preform-nonterminal>`
-- **Linguistics module** (NEW in PLAN-10):
-  - 13 linguistics NodeType variants (Verb, UnparsedNoun, Pronoun, etc.)
+- **Linguistics module** (PLAN-10):
+  - 13 linguistics NodeType variants
   - Article system (Article, ArticleUsage, SmallWordSet)
-  - Three article internal NTs (`<article>`, `<definite-article>`, `<indefinite-article>`)
-  - Diagram constructor functions (Diagrams::new_*)
-  - Noun phrase parsing at NP1 (`<np-unparsed>`) and NP2 (`<np-articled>`) levels
+  - Three article internal NTs
+  - Diagram constructor functions
+  - Noun phrase parsing at NP1/NP2 levels
   - Public `parse_noun_phrase` API
-  - 30+ tests
+- **Verb system** (PLAN-11):
+  - WordAssemblage type
+  - Lcon/linguistic constants
+  - Stock control (GrammaticalCategory, LinguisticStockItem, Stock, GrammaticalUsage)
+  - Certainty levels and `<certainty>` internal NT
+  - Verb conjugation (simplified for English: "to be", "to have", regular)
+  - Verb data structures (Verb, VerbForm, VerbSense, VerbMeaning, VerbUsage, VerbUsageTier, Preposition, SpecialMeaningHolder)
+  - Verbs registry with creation and lookup functions
+  - Verb system internal NTs (6 new NTs)
+  - 105 new tests
 
 ### Test status
-- 292 tests pass, 0 failures
+- 397 tests pass, 0 failures
 - `cargo clippy --all-targets` is clean
 
 ## What's Next
 
-The next independently testable piece should be one of:
-1. **World model kinds** — the kind hierarchy (value, object, room, thing, etc.) — this is the foundation of the world model and doesn't depend on the full assertion parser
-2. **Verb phrase parsing** — building on the linguistics module to parse verb phrases
-3. **Full sentence parsing** — combining noun and verb phrases to parse complete sentences
+The next logical step is PLAN-12: VerbPhrases::seek — the verb-finding algorithm that searches for verb usages in a wording, builds the viability map, and produces VERB_NT sentence diagrams. This is the bridge between the verb system data structures and full sentence parsing.
 
-The kind system is the most foundational next step. It would require creating a new `conform7-semantics` crate (or adding to the existing syntax crate) with:
-- Kind hierarchy (value, object, room, thing, container, supporter, etc.)
-- Kind relationships (subkinding, conjunction kinds)
-- Instance tracking
-- Property definitions
-
-This is independently testable: we can construct kinds programmatically and verify the hierarchy without needing to parse any I7 source.
+After that:
+- PLAN-13: Full sentence parsing (`<sentence>` internal NT)
+- PLAN-14: World model kinds (conform7-semantics crate)
+- PLAN-15: Assertion processing
+- PLAN-16: Inter emission from world model
+- PLAN-17+: Compiler driver, LSP, etc.

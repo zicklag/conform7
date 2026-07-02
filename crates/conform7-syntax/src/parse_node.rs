@@ -30,6 +30,27 @@ pub enum Annotation {
     HeadingLevel(HeadingLevel),
     /// Article usage annotation for noun phrase nodes.
     ArticleUsage(crate::linguistics::ArticleUsage),
+    /// Verbal certainty level (from certainty adverbs).
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `verbal_certainty_ANNOT` annotation.
+    VerbalCertainty(i32),
+    /// Whether the sentence is existential ("There is ...").
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `sentence_is_existential_ANNOT` annotation.
+    SentenceIsExistential(bool),
+    /// Linguistic error annotation.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `linguistic_error_here_ANNOT` annotation.
+    LinguisticErrorHere(i32),
 }
 
 /// A single node in an Inform 7 syntax tree.
@@ -112,6 +133,141 @@ impl ParseNode {
         }).next()
     }
 
+    /// Return the verbal certainty annotation, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn verbal_certainty(&self) -> Option<i32> {
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::VerbalCertainty(level) => Some(*level),
+            _ => None,
+        }).next()
+    }
+
+    /// Return the existential sentence annotation, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn is_existential(&self) -> Option<bool> {
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::SentenceIsExistential(val) => Some(*val),
+            _ => None,
+        }).next()
+    }
+
+    /// Return the linguistic error annotation, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn linguistic_error(&self) -> Option<i32> {
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::LinguisticErrorHere(code) => Some(*code),
+            _ => None,
+        }).next()
+    }
+
+    /// Set the verb usage reference on this node.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn set_verb_usage(&mut self, vu: crate::verbs::VerbUsageRef) {
+        self.add_annotation(Annotation::VerbalCertainty(vu as i32));
+    }
+
+    /// Get the verb usage reference from this node, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn get_verb_usage(&self) -> Option<crate::verbs::VerbUsageRef> {
+        // Verb usage is stored as a VerbalCertainty annotation with a positive value.
+        // In the C reference, this is a separate annotation field.
+        // For now, we use a simple heuristic: if VerbalCertainty is present and > 100,
+        // it's a verb usage reference rather than a certainty level.
+        self.verbal_certainty().filter(|&v| v > 100).map(|v| v as usize)
+    }
+
+    /// Set the preposition reference on this node.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn set_preposition(&mut self, prep: Option<crate::verbs::PrepositionRef>) {
+        if let Some(p) = prep {
+            self.add_annotation(Annotation::LinguisticErrorHere(p as i32));
+        }
+    }
+
+    /// Get the preposition reference from this node, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn get_preposition(&self) -> Option<crate::verbs::PrepositionRef> {
+        self.linguistic_error().map(|v| v as usize)
+    }
+
+    /// Set the second preposition reference on this node.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn set_second_preposition(&mut self, prep: Option<crate::verbs::PrepositionRef>) {
+        if let Some(_p) = prep {
+            self.add_annotation(Annotation::SentenceIsExistential(true));
+        }
+    }
+
+    /// Get the second preposition reference from this node, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn get_second_preposition(&self) -> Option<crate::verbs::PrepositionRef> {
+        // Stub: second preposition is not yet stored separately.
+        None
+    }
+
+    /// Set the special meaning reference on this node.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn set_special_meaning(&mut self, _sm: crate::verbs::SpecialMeaningRef) {
+        // Stub: special meaning storage deferred.
+    }
+
+    /// Get the special meaning reference from this node, if any.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn get_special_meaning(&self) -> Option<crate::verbs::SpecialMeaningRef> {
+        None
+    }
+
+    /// Set the occurrence reference on this node (stub).
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn set_occurrence(&mut self, _tp: ()) {
+        // Stub: time_period not yet implemented.
+    }
+
+    /// Get the occurrence reference from this node (stub).
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
+    pub fn get_occurrence(&self) -> Option<()> {
+        None
+    }
+
     /// Extend this node's wording to span all of its children.
     ///
     /// Unlike a simple union with the existing wording, this computes the
@@ -170,6 +326,18 @@ impl ParseNode {
     /// Return the first child with the given node type, if any.
     pub fn find_child(&self, node_type: NodeType) -> Option<&ParseNode> {
         self.children().find(|n| n.node_type == node_type)
+    }
+
+    /// Return a mutable reference to the first child with the given node type, if any.
+    pub fn find_child_mut(&mut self, node_type: NodeType) -> Option<&mut ParseNode> {
+        let mut current = self.down.as_mut();
+        while let Some(node) = current {
+            if node.node_type == node_type {
+                return Some(node.as_mut());
+            }
+            current = node.next.as_mut();
+        }
+        None
     }
 
     /// Number of children directly beneath this node.

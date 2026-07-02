@@ -20,6 +20,10 @@ codebase.
    rules, and phrases interactively.
 4. **Start small, ship early.** Phase 1 is parsing + world model + LSP. Code
    generation comes after the interactive experience is solid.
+5. **Reference-first development.** Before implementing any component, study
+   the corresponding C implementation in `gitignore/inform/`. Read the `.w`
+   files (literate programs), not the Tangled C. Understand the existing
+   design before reimagining it.
 
 ---
 
@@ -28,12 +32,13 @@ codebase.
 | Concern | Choice | Rationale |
 |---------|--------|-----------|
 | Incremental computation | **Salsa** | Powers rust-analyzer; memoizes queries, tracks dependencies, minimal recomputation |
-| Parsing | **Chumsky** | Parser combinators with best-in-class error recovery; I7 syntax is simple enough that parser performance is not the bottleneck |
-| Syntax trees | **Rowan** | Lossless red-green trees; full fidelity (whitespace, comments); proven in rust-analyzer |
+| Grammar format | **Preform** | The same declarative pattern-matching grammar the C compiler uses; `Syntax.preform` is the authoritative grammar, loaded and matched at runtime |
+| Matching engine | **Custom backtracking engine** | Implements the Preform matching algorithm: fixed words, `...` wildcards, sub-nonterminal recursion, internal NT dispatch |
+| Syntax trees | **ParseNode** | Mirrors the C `parse_node` struct directly; linked-list children, sibling links, `next_alternative` for ambiguous parses; simple, faithful, proven |
 | LSP server | **tower-lsp-server** | Active community fork; used by Biome, Oxc, Deno |
 | Diagnostics | **Ariadne** | Beautiful, colorful error output with labeled spans |
 | Async runtime | **Tokio** | De facto standard; required by tower-lsp-server |
-| Inter emission | **Custom binary writer** | We emit Inter bytecode directly; the existing C `inter` tool handles linking, optimization, and codegen |
+| Inter emission | **Textual Inter** | We emit textual `.intert` files; the existing C `inter` tool handles linking, optimization, and codegen. Binary Inter is deferred. |
 
 ---
 
@@ -51,21 +56,25 @@ codebase.
 │              Salsa Database (incremental)                 │
 │                                                          │
 │  ┌──────────┐   ┌──────────────┐   ┌─────────────────┐  │
-│  │  Parser  │   │   Semantic   │   │   Inter Emit    │  │
-│  │ (Chumsky)│──→│   Analysis   │──→│  (binary/text)  │  │
-│  │          │   │  (World Model)│   │                 │  │
-│  └──────────┘   └──────────────┘   └────────┬────────┘  │
-│                                              │           │
-│  Rowan CST/AST                                │           │
-│  ┌──────────────────────────────────────┐    │           │
-│  │  Green tree (immutable, interned)    │    │           │
-│  │  Red tree  (parent pointers, offset) │    │           │
-│  │  AST layer (typed wrappers)          │    │           │
-│  └──────────────────────────────────────┘    │           │
-└──────────────────────────────────────────────┼───────────┘
-                                               │
-                    Inter bytecode file         │
-                                               ▼
+│  │  Lexer   │   │   Preform   │   │   World Model   │  │
+│  │ (tokens) │──→│   Matching  │──→│  (kinds, insts, │  │
+│  │          │   │   Engine    │   │   props, verbs)  │  │
+│  └──────────┘   └──────┬──────┘   └────────┬────────┘  │
+│                        │                    │           │
+│  Sentence Breaker      │ ParseNode trees    │           │
+│  ┌─────────────────┐   │                    │           │
+│  │ classified      │   │                    │           │
+│  │ sentences       │   │                    │           │
+│  └─────────────────┘   │                    │           │
+│                        ▼                    ▼           │
+│              ┌─────────────────────────────────────┐     │
+│              │         Inter Emission             │     │
+│              │     (textual .intert output)       │     │
+│              └──────────────────┬──────────────────┘     │
+└─────────────────────────────────┼────────────────────────┘
+                                  │
+              Textual Inter file  │
+                                  ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Existing C toolchain                         │
 │  ┌──────────┐   ┌──────────────┐   ┌─────────────────┐  │
@@ -82,21 +91,26 @@ codebase.
 conform7/
 ├── Cargo.toml                    # Workspace root
 ├── crates/
-│   ├── conform7-syntax/          # Rowan AST definitions + Chumsky parser
+│   ├── conform7-syntax/          # I7 frontend: lexer, sentence breaker, Preform engine, parse trees
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── ast.rs            # AST node types (generated or hand-written)
-│   │   │   ├── syntax_kind.rs    # SyntaxKind enum for all node/token types
-│   │   │   ├── parser/
-│   │   │   │   ├── mod.rs
-│   │   │   │   ├── lexer.rs      # Tokenizer (I7 has unique lexing needs)
-│   │   │   │   ├── source.rs     # Source file, headings, sentences
-│   │   │   │   ├── assertions.rs # "Peter is a man", "The tally is a number"
-│   │   │   │   ├── phrases.rs    # "To expose (X - a value): ..."
-│   │   │   │   ├── rules.rs      # "Every turn: ...", "Instead of..."
-│   │   │   │   ├── i6_schema.rs  # (- ... -) embedded I6 code
-│   │   │   │   └── error.rs      # Parse error types + recovery strategies
-│   │   │   └── ast_ext.rs        # Extension methods on AST nodes
+│   │   │   ├── syntax_kind.rs    # SyntaxKind enum for all token/node types
+│   │   │   ├── token.rs          # Token type with source location
+│   │   │   ├── lexer.rs          # I7 source lexer (tokenizer)
+│   │   │   ├── sentence.rs       # Sentence breaker (token stream → classified sentences)
+│   │   │   ├── wording.rs        # Word range references into source text
+│   │   │   ├── node_type.rs      # NodeType enum with metadata (arity, category, flags)
+│   │   │   ├── parse_node.rs     # ParseNode tree (children, siblings, alternatives)
+│   │   │   ├── heading.rs        # Heading sentence → HEADING_NT parse node
+│   │   │   ├── structural.rs     # Structural sentence → parse node
+│   │   │   ├── preform.rs        # Preform grammar parser + matching engine
+│   │   │   ├── preform_internal.rs # Internal NT registry and implementations
+│   │   │   ├── linguistics.rs    # Linguistics module: articles, diagrams, noun phrases
+│   │   │   ├── linguistic_constants.rs # Lcon type and grammatical constants
+│   │   │   ├── stock_control.rs  # Linguistic stock registry
+│   │   │   ├── word_assemblage.rs # Multi-word text type
+│   │   │   ├── verb_conjugation.rs # Verb conjugation tables
+│   │   │   └── verbs.rs          # Verb, VerbForm, VerbSense, VerbMeaning, VerbUsage, Preposition, SpecialMeaning
 │   │   └── Cargo.toml
 │   │
 │   ├── conform7-semantics/       # World model, type checking, name resolution
@@ -125,18 +139,17 @@ conform7/
 │   │   │   └── name_resolution.rs # Resolving names to kinds/instances/etc.
 │   │   └── Cargo.toml
 │   │
-│   ├── conform7-inter/           # Inter IR emission
+│   ├── conform7-inter/           # Inter IR read/write
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── tree.rs           # Inter tree construction in memory
-│   │   │   ├── package.rs        # Package hierarchy (main, modules, submodules)
-│   │   │   ├── symbol.rs         # Symbol tables and wiring
-│   │   │   ├── instruction.rs    # Inter instruction constructors
+│   │   │   ├── tree.rs           # InterTree, Package, SymbolsTable, Symbol
+│   │   │   ├── instruction.rs    # Instruction constructors and types
 │   │   │   ├── value.rs          # Inter value pairs
 │   │   │   ├── types.rs          # Inter type system
-│   │   │   ├── emit.rs           # High-level emission API (like Produce)
-│   │   │   ├── binary.rs         # Binary Inter file writer
-│   │   │   └── textual.rs        # Textual Inter file writer (for debugging)
+│   │   │   └── textual.rs        # Textual .intert reader and writer
+│   │   ├── tests/
+│   │   │   ├── roundtrip_tests.rs
+│   │   │   └── inter_compat_tests.rs
 │   │   └── Cargo.toml
 │   │
 │   ├── conform7-compiler/        # Top-level compiler driver
@@ -171,6 +184,13 @@ conform7/
 │   ├── fixtures/                 # Test I7 source files
 │   └── integration.rs
 │
+├── plans/                        # Plan-driven development
+│   ├── CURRENT.md                # Points to the active plan
+│   ├── PLAN-1.md                 # Textual Inter compatibility
+│   ├── PLAN-2.md                 # I7 Lexer Foundation
+│   ├── ...
+│   └── FUTURE-PERF.md            # Performance optimization notes
+│
 └── docs/
     └── inter-format.md           # Notes on Inter binary format
 ```
@@ -178,6 +198,10 @@ conform7/
 ---
 
 ## Salsa Database Design
+
+*Note: The Salsa database is a design target, not yet implemented. The current
+codebase builds data structures directly without Salsa. Salsa integration will
+be added when the compiler driver is built.*
 
 The Salsa database is the heart of the system. Every compiler phase is a query.
 
@@ -320,79 +344,206 @@ Instead of taking the beaker:
     say "It's bolted to the table."
 ```
 
+### Pipeline
+
+I7 parsing follows the C reference's architecture, not a conventional recursive
+descent parser. The pipeline is:
+
+```
+Source text
+    │
+    ▼
+Lexer (state machine) → flat Vec<Token>
+    │
+    ▼
+Sentence breaker (FSM) → classified sentences (headings, structural, regular)
+    │
+    ▼
+Preform matching engine (backtracking) → ParseNode trees
+    │
+    ▼
+Linguistics module (articles, noun phrases, verb phrases) → annotated diagrams
+    │
+    ▼
+World model (kinds, instances, properties, relations)
+```
+
+### Why Preform instead of a hand-written parser
+
+I7's syntax is natural language, not a conventional programming language grammar.
+The C reference uses **Preform** — a declarative pattern-matching grammar format
+defined in `Syntax.preform` files (~720 nonterminals for English). Key reasons
+for following this approach:
+
+1. **The grammar is the source of truth.** `Syntax.preform` is the authoritative
+   grammar used by the C compiler. We load it at runtime and match against it.
+   No duplication, no drift.
+
+2. **Backtracking with alternatives.** I7 sentences are inherently ambiguous.
+   The Preform engine tries productions in order and backtracks on failure. The
+   parse tree preserves `next_alternative` links for the world model to resolve
+   later.
+
+3. **Internal nonterminals.** Many grammar rules delegate to Rust functions
+   (article lookup, verb conjugation matching, paragraph detection). These are
+   registered by name in an `InternalRegistry` and dispatched during matching.
+
+4. **Proven.** This architecture has been compiling I7 for 20+ years.
+
 ### Lexer
 
-The I7 lexer is unusual because it's natural language. Key token types:
+The I7 lexer is a state machine (not a parser combinator) that produces a flat
+`Vec<Token>`. Key token types:
 
-- **Headings**: `Chapter 1 - The Beginning` (volume, book, part, chapter, section)
+- **Words**: natural language words, case-preserved
 - **Strings**: `"Hello, world!"`
-- **Bracketed I6**: `(- ... -)` — embedded Inform 6 code
-- **Text substitutions**: `[tally]`, `[the noun]`, `[if condition]...[end if]`
-- **Comments**: `[ ... ]` in some contexts
-- **Words**: Everything else is natural language words
+- **I6 blocks**: `(- ... -)` — embedded Inform 6 code
+- **Text substitutions**: `[tally]`, `[if condition]...[end if]`
+- **Comments**: `[...]` outside strings
+- **Paragraph breaks**: blank lines (significant — they end sentences)
+- **Punctuation**: `. , : ; ? ! ( ) { }`
+- **Heading markers**: Volume, Book, Part, Chapter, Section
 
 ```rust
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum SyntaxKind {
-    // Tokens
-    Word,           // any natural language word
-    QuotedString,   // "text"
-    I6Bracketed,    // (- ... -)
-    TextSubstitution, // [value], [if ...], etc.
-    HeadingMarker,  // Volume, Book, Part, Chapter, Section
-    Comment,        // [comment text]
-    Newline,
-    Whitespace,
-
-    // Nodes
-    Source,         // root
-    Heading,
-    Sentence,
-    Assertion,
-    PhraseDefinition,
-    PhraseBody,
-    RuleDefinition,
-    RuleBody,
-    I6Schema,
-    Error,
+#[derive(Clone, Debug, PartialEq)]
+pub struct Token {
+    pub kind: SyntaxKind,
+    pub text: String,
+    pub range: Range<usize>,
 }
 ```
 
-### Parser Design
+### Sentence Breaker
 
-The parser is a Chumsky recursive descent parser. Because I7 is mostly
-natural language, the parser's job is relatively light:
-
-1. **Split into headings and sentences** — this is mostly a line-by-line
-   structural parse
-2. **Classify sentences** — assertion, phrase definition, rule, or I6 schema
-3. **Parse I6 schemas** — `(- ... -)` blocks get a sub-parser for I6 syntax
-4. **Parse text substitutions** — `[name]`, `[if ...]`, `[otherwise]`, etc.
-
-The heavy lifting happens in semantic analysis, not parsing.
+The sentence breaker is a finite state machine that takes the token stream and
+splits it into classified sentences:
 
 ```rust
-fn i7_parser() -> impl Parser<Token, Ast> {
-    // Top level: headings and sentences
-    let heading = ...;
-    let sentence = choice((
-        assertion(),
-        phrase_definition(),
-        rule_definition(),
-        i6_schema(),
-        fallback_sentence(), // unclassified natural language
-    ));
+pub struct Sentence {
+    pub token_range: Range<usize>,
+    pub classification: SentenceClassification,
+}
 
-    heading.repeated().then(sentence.repeated()).map(|(h, s)| Ast { ... })
+pub enum SentenceClassification {
+    Heading { level: HeadingLevel },
+    Structural(StructuralType),
+    Regular,
+    RulePreamble,
+    RulePhrase,
 }
 ```
 
-### Error Recovery
+Sentence-ending punctuation:
+- `.` (full stop) — always ends a sentence
+- `;` (semicolon) — ends a phrase within a rule
+- `:` (colon) — ends a rule preamble
+- Paragraph break — always ends a sentence
 
-Chumsky's `recover_with(via_parser(...))` handles malformed input gracefully.
-For I7, recovery is straightforward because most "errors" are just sentences
-the parser doesn't understand yet — they get classified as fallback sentences
-and diagnosed later in semantic analysis.
+### Preform Grammar
+
+The Preform grammar format is:
+
+```
+<nonterminal-name> internal
+
+<nonterminal-name> ::=
+    production1 |
+    production2 |
+    ...
+```
+
+Productions contain:
+- **Fixed words**: literal text like `to`, `is`, `a`, `room`
+- **Ellipsis wildcards**: `...` (any number of words) or `.....` (exactly N)
+- **Sub-nonterminals**: `<quoted-text>`, `<if-start-of-paragraph>`, etc.
+- **Internal**: matching is done by a Rust function, not grammar rules
+
+The grammar is parsed into in-memory data structures:
+
+```rust
+pub struct Grammar {
+    pub nonterminals: HashMap<String, Nonterminal>,
+}
+
+pub struct Nonterminal {
+    pub name: String,
+    pub productions: Vec<Production>,
+    pub internal: bool,
+}
+
+pub struct Production {
+    pub tokens: Vec<ProductionToken>,
+}
+
+pub enum ProductionToken {
+    FixedWord(String),
+    Wildcard(usize),       // number of dots
+    SubNonterminal(String),
+}
+```
+
+### Matching Engine
+
+The matching engine takes a nonterminal and a wording and tries to match it
+against all productions with backtracking:
+
+```rust
+pub fn match_nonterminal(
+    ctx: &PreformContext,
+    registry: &InternalRegistry,
+    name: &str,
+    wording: Wording,
+) -> Option<Match>
+```
+
+Internal nonterminals are Rust functions registered by name:
+
+```rust
+pub trait InternalNonterminal: Debug {
+    fn match_internal(
+        &self,
+        ctx: &PreformContext,
+        wording: Wording,
+    ) -> Option<InternalResult>;
+}
+```
+
+### Parse Trees
+
+The matching engine produces `ParseNode` trees that mirror the C `parse_node`
+struct:
+
+```rust
+pub struct ParseNode {
+    pub wording: Wording,
+    pub node_type: NodeType,
+    pub annotations: Vec<Annotation>,
+    pub down: Option<Box<ParseNode>>,        // first child
+    pub next: Option<Box<ParseNode>>,         // next sibling
+    pub next_alternative: Option<Box<ParseNode>>, // alternative interpretation
+}
+```
+
+Key design points:
+- **`next_alternative`** preserves ambiguous parses for the world model to resolve
+- **`Wording`** is a lightweight `(start, end)` range into the source word stream
+- **`NodeType`** is an enum with metadata (arity, category, flags) matching the C reference
+
+### Linguistics Module
+
+The linguistics module bridges raw Preform matches to structured parse trees:
+
+- **Articles**: definite ("the"), indefinite ("a", "an", "some") — matched by
+  internal NTs and returned as `ArticleUsage` values
+- **Noun phrases**: `<np-unparsed>` (raw text), `<np-articled>` (article + noun),
+  with NP3/NP4 (list-divided, relative clauses) planned
+- **Verb system**: `Verb`, `VerbForm`, `VerbSense`, `VerbMeaning`, `VerbUsage`,
+  `Preposition`, `SpecialMeaningHolder` — the data structures that represent
+  verbs and their grammatical properties
+- **Verb conjugation**: Simplified conjugation tables for common English verbs
+  ("to be", "to have"), with the full Preform-based system deferred
+- **Sentence diagrams**: `VERB_NT`, `UNPARSED_NOUN_NT`, `COMMON_NOUN_NT`,
+  `PROPER_NOUN_NT`, etc. — the node types that represent parsed sentences
 
 ---
 
@@ -560,8 +711,11 @@ impl InterEmitter {
 
 ### Output
 
-We produce binary Inter files (`.interb`) that the existing `inter` tool can
-read. For debugging, we also support textual Inter output.
+We produce textual Inter files (`.intert`) that the existing `inter` tool can
+read. The textual reader/writer is complete and cross-validated against the
+official `inter` tool for round-trip fidelity. Binary Inter (`.interb`) is
+deferred — the core pipeline emits textual Inter and hands off to the existing
+C toolchain.
 
 ---
 
@@ -662,9 +816,10 @@ impl LanguageServer for Conform7Server {
    └── Create initial Inter hierarchy
 
 2. Parsing
-   ├── Lex source text
-   ├── Parse into AST
-   └── Extract headings, sentences, I6 schemas
+   ├── Lex source text → tokens
+   ├── Break into sentences
+   ├── Match sentences against Preform grammar → ParseNode trees
+   └── Linguistics module: articles, noun phrases, verb phrases
 
 3. Semantic Analysis (Pass 1)
    ├── Pre-pass: identify major nodes
@@ -691,7 +846,7 @@ impl LanguageServer for Conform7Server {
    ├── Emit relation declarations
    ├── Emit phrase/rule functions
    ├── Emit metadata
-   └── Write binary Inter file
+   └── Write textual Inter file
 
 7. Hand off to `inter` tool
    ├── Link with kits (BasicInformKit, WorldModelKit, ...)
@@ -734,23 +889,30 @@ Salsa: invalidate dependent queries
 
 ## Development Phases
 
-### Phase 0: Foundation (Weeks 1-2)
-- [ ] Set up Cargo workspace with all crates
-- [ ] Define `SyntaxKind` enum for all I7 token/node types
-- [ ] Implement Rowan green/red tree integration
-- [ ] Set up Salsa database skeleton
-- [ ] Implement basic lexer (words, strings, headings, I6 brackets)
-- [ ] Write a small test suite with example I7 source files
+### Phase 0: Foundation (Weeks 1-2) — Complete
+- [x] Set up Cargo workspace with all crates
+- [x] Define `SyntaxKind` enum for all I7 token/node types
+- [x] Implement lexer (words, strings, headings, I6 brackets, comments)
+- [x] Implement sentence breaker (FSM for splitting token stream)
+- [x] Implement `ParseNode` tree data model
+- [x] Implement `NodeType` enum with metadata
+- [x] Implement Preform grammar parser (loads `Syntax.preform`)
+- [x] Implement Preform matching engine (backtracking, wildcards, sub-NTs)
+- [x] Implement internal NT dispatch (registry of Rust functions)
+- [x] Implement `conform7-inter` crate (textual Inter read/write, round-trip verified)
 
-### Phase 1: Parsing (Weeks 3-5)
-- [ ] Implement Chumsky parser for I7 source structure
-- [ ] Parse headings (volume, book, part, chapter, section)
-- [ ] Parse sentences (assertions, phrases, rules)
-- [ ] Parse I6 schemas `(- ... -)`
-- [ ] Parse text substitutions `[...]`
-- [ ] Error recovery for malformed input
-- [ ] Generate Rowan CST from parser output
-- [ ] Build typed AST layer over Rowan nodes
+### Phase 1: Linguistics & Parsing (Weeks 3-5) — In Progress
+- [x] Linguistics node types (VERB_NT, UNPARSED_NOUN_NT, etc.)
+- [x] Article system (definite/indefinite articles, internal NTs)
+- [x] Noun phrase parsing (NP1/NP2: unparsed, articled)
+- [x] Word assemblage type
+- [x] Linguistic constants (Lcon type, grammatical attributes)
+- [x] Stock control (linguistic registry)
+- [x] Verb conjugation (simplified for English)
+- [ ] Verb data structures and creation (Verb, VerbForm, VerbSense, VerbMeaning, VerbUsage, Preposition, SpecialMeaning)
+- [ ] Verb phrase parsing (VerbPhrases::seek)
+- [ ] Full sentence parsing (<sentence> internal NT)
+- [ ] NP3/NP4 noun phrase levels (list-divided, relative clauses)
 
 ### Phase 2: World Model (Weeks 6-10)
 - [ ] Implement built-in kinds (number, text, thing, room, ...)
@@ -777,8 +939,7 @@ Salsa: invalidate dependent queries
 - [ ] Package hierarchy construction
 - [ ] Symbol table management
 - [ ] Instruction emission API
-- [ ] Binary Inter file writer
-- [ ] Textual Inter file writer (for debugging)
+- [ ] Textual Inter file writer
 - [ ] Integration test: compile simple I7 → Inter → run through `inter` tool
 
 ### Phase 5: LSP Server (Weeks 18-22)
@@ -812,19 +973,47 @@ Salsa: invalidate dependent queries
 
 ## Key Design Decisions
 
-### 1. Why Rowan instead of a hand-rolled AST?
+### 1. Why Preform instead of a hand-written parser?
 
-Rowan gives us lossless syntax trees for free. Every token, every whitespace,
-every comment is preserved. This is essential for:
-- Accurate error spans
-- Code formatting / refactoring
-- Semantic token highlighting
-- Mapping LSP positions back to source
+I7's syntax is natural language, not a conventional programming language grammar.
+The C reference uses **Preform** — a declarative pattern-matching grammar format
+defined in `Syntax.preform` files (~720 nonterminals for English). We follow the
+same approach because:
 
-The red-green tree design means we can share subtrees (interning) and navigate
-efficiently (parent pointers, offsets).
+- **The grammar is the source of truth.** `Syntax.preform` is the authoritative
+  grammar used by the C compiler. We load it at runtime and match against it.
+  No duplication, no drift.
+- **Backtracking with alternatives.** I7 sentences are inherently ambiguous.
+  The Preform engine tries productions in order and backtracks on failure. The
+  parse tree preserves `next_alternative` links for the world model to resolve
+  later.
+- **Internal nonterminals.** Many grammar rules delegate to Rust functions
+  (article lookup, verb conjugation matching, paragraph detection). These are
+  registered by name in an `InternalRegistry` and dispatched during matching.
+- **Proven.** This architecture has been compiling I7 for 20+ years.
 
-### 2. Why emit Inter instead of generating I6 directly?
+A conventional parser combinator library (e.g., Chumsky) would require either
+duplicating the grammar in Rust code or writing a Preform-to-combinator compiler.
+Neither is worth the cost.
+
+### 2. Why ParseNode instead of Rowan (red-green trees)?
+
+The `ParseNode` tree mirrors the C `parse_node` struct directly. This is simpler
+and more faithful to the reference than Rowan's green/red tree architecture:
+
+- **`next_alternative`** is a first-class concept — ambiguous parses are preserved
+  as linked alternatives. Rowan has no equivalent.
+- **Linked-list children** match the C reference's `down`/`next` traversal.
+- **`Wording`** (word range into source) provides source mapping without a
+  separate tree layer.
+- **~400 lines of straightforward Rust** vs. Rowan's multi-layer abstraction
+  (green tree, red tree, AST traits).
+
+Rowan's strengths (lossless whitespace/comments, incremental reparsing) are
+less relevant here: the lexer already preserves comments and whitespace as
+tokens, and Salsa provides query-level incrementality.
+
+### 3. Why emit Inter instead of generating I6 directly?
 
 The existing `inter` tool handles:
 - Linking with kits (BasicInformKit, WorldModelKit, CommandParserKit)
@@ -836,7 +1025,7 @@ Reimplementing all of that is a massive undertaking. By emitting Inter, we
 get all of that for free. We can always reimplement the pipeline later if
 needed.
 
-### 3. Why Salsa instead of hand-rolled incremental computation?
+### 4. Why Salsa instead of hand-rolled incremental computation?
 
 Salsa is battle-tested (rust-analyzer compiles Rust on every keystroke). It
 handles:
@@ -847,17 +1036,6 @@ handles:
 - Persistent caching
 
 Building this ourselves would be a project in itself.
-
-### 4. Why Chumsky instead of hand-written parser?
-
-I7's syntax is simple enough that parser performance is not the bottleneck.
-Chumsky gives us:
-- Expressive combinators for rapid development
-- Built-in error recovery
-- Rich error types
-- Pratt parsing for I6 expressions
-
-If performance becomes an issue, we can hand-optimize the hot paths later.
 
 ### 5. How do we handle the Standard Rules and extensions?
 
@@ -888,8 +1066,5 @@ change (which is never during normal editing).
 - [Inter Bytecode Module](https://ganelson.github.io/inform/bytecode-module/P-wtmd.html)
 - [Inter Building Module](https://ganelson.github.io/inform/building-module/P-wtmd.html)
 - [Salsa Book](https://salsa-rs.github.io/salsa/)
-- [Rowan: Red-Green Trees](https://github.com/rust-lang/rust-analyzer/blob/master/docs/dev/syntax.md)
-- [Resilient LL Parsing Tutorial](https://matklad.github.io/2023/05/21/resilient-ll-parsing-tutorial.html)
-- [Chumsky Guide](https://docs.rs/chumsky/latest/chumsky/guide/)
 - [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server)
 - [Ariadne Diagnostics](https://github.com/zesterer/ariadne)

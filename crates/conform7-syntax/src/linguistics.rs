@@ -375,11 +375,9 @@ pub fn parse_noun_phrase(
     let word_count = word_text.len() as u32;
     let wording = Wording::new(0, word_count);
 
-    let ctx = PreformContext {
-        grammar,
-        word_text: &word_text,
-        is_paragraph_start: false,
-    };
+    let ctx = PreformContext { grammar,
+    word_text: &word_text,
+    is_paragraph_start: false, verbs_registry: None };
 
     // Try <np-articled> first, then fall back to <np-unparsed>.
     if let Some(node) = NounPhrases::parse_np_articled(&ctx, registry, wording) {
@@ -407,11 +405,9 @@ mod tests {
         let (article, definite, _) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n<definite-article> internal\n").unwrap();
         let words = &["the"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'the'");
@@ -430,11 +426,9 @@ mod tests {
         let (article, _, indefinite) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n<indefinite-article> internal\n").unwrap();
         let words = &["a"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'a'");
@@ -449,11 +443,9 @@ mod tests {
         let (article, _, indefinite) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n<indefinite-article> internal\n").unwrap();
         let words = &["an"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'an'");
@@ -468,11 +460,9 @@ mod tests {
         let (article, _, indefinite) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n<indefinite-article> internal\n").unwrap();
         let words = &["some"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'some'");
@@ -487,11 +477,9 @@ mod tests {
         let (article, definite, indefinite) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n<definite-article> internal\n<indefinite-article> internal\n").unwrap();
         let words = &["xyzzy"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         assert!(article.match_nonterminal(&ctx, Wording::new(0, 1)).is_none());
         assert!(definite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none());
@@ -504,11 +492,9 @@ mod tests {
         let (_, definite, _) = make_article_internals();
         let grammar = parse_preform_grammar("<definite-article> internal\n").unwrap();
         let words = &["a"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         assert!(definite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none(),
             "definite-article should fail on 'a'");
@@ -520,11 +506,9 @@ mod tests {
         let (_, _, indefinite) = make_article_internals();
         let grammar = parse_preform_grammar("<indefinite-article> internal\n").unwrap();
         let words = &["the"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         assert!(indefinite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none(),
             "indefinite-article should fail on 'the'");
@@ -536,11 +520,9 @@ mod tests {
         let (article, _, _) = make_article_internals();
         let grammar = parse_preform_grammar("<article> internal\n").unwrap();
         let words = &["the", "cat"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         assert!(article.match_nonterminal(&ctx, Wording::new(0, 2)).is_none(),
             "article should fail on multi-word wording");
@@ -666,11 +648,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["hello", "world"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let node = NounPhrases::parse_np_unparsed(&ctx, &registry, Wording::new(0, 2));
         assert!(node.is_some(), "np-unparsed should match any text");
@@ -690,11 +670,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["the", "room"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let node = NounPhrases::parse_np_articled(&ctx, &registry, Wording::new(0, 2));
         assert!(node.is_some(), "np-articled should match 'the room'");
@@ -713,11 +691,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["a", "container"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let node = NounPhrases::parse_np_articled(&ctx, &registry, Wording::new(0, 2));
         assert!(node.is_some(), "np-articled should match 'a container'");
@@ -733,11 +709,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["xyzzy"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let node = NounPhrases::parse_np_articled(&ctx, &registry, Wording::new(0, 1));
         assert!(node.is_none(), "np-articled should fail on 'xyzzy' (no article)");
@@ -773,11 +747,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["the", "cat"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let m = match_nonterminal_impl(&ctx, &registry, "test", Wording::new(0, 2));
         assert!(m.is_some(), "<article> cat should match 'the cat'");
@@ -793,11 +765,9 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let registry = InternalRegistry::linguistics();
         let words = &["xyzzy", "cat"];
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let m = match_nonterminal_impl(&ctx, &registry, "test", Wording::new(0, 2));
         assert!(m.is_none(), "<article> cat should fail on 'xyzzy cat'");
@@ -975,11 +945,9 @@ mod tests {
 
         let words = &["hello", "world"];
         let registry = InternalRegistry::linguistics();
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let m = match_nonterminal_impl(&ctx, &registry, "np-unparsed", Wording::new(0, 2));
         assert!(m.is_some(), "np-unparsed should match 'hello world' via real grammar");
@@ -999,11 +967,9 @@ mod tests {
 
         let words = &["the", "room"];
         let registry = InternalRegistry::linguistics();
-        let ctx = PreformContext {
-            grammar: &grammar,
-            word_text: words,
-            is_paragraph_start: false,
-        };
+        let ctx = PreformContext { grammar: &grammar,
+        word_text: words,
+        is_paragraph_start: false, verbs_registry: None };
 
         let m = match_nonterminal_impl(&ctx, &registry, "np-articled", Wording::new(0, 2));
         assert!(m.is_some(), "np-articled should match 'the room' via real grammar");

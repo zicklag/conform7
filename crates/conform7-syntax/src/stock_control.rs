@@ -115,7 +115,7 @@ impl GrammaticalUsage {
 /// # References
 ///
 /// - C reference: `services/linguistics-module/Chapter 1/Stock Control.w`
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Stock {
     /// All registered categories.
     pub categories: Vec<GrammaticalCategory>,
@@ -155,7 +155,7 @@ impl Stock {
     /// # References
     ///
     /// - C reference: `services/linguistics-module/Chapter 1/Stock Control.w`
-    pub fn new(&mut self, category_index: usize, data: Box<dyn Any>) -> LinguisticStockItemRef {
+    pub fn add_item(&mut self, category_index: usize, data: Box<dyn Any>) -> LinguisticStockItemRef {
         let category = self.categories[category_index].clone();
         let index = self.items.len();
         self.items.push(LinguisticStockItem::new(category, data));
@@ -272,7 +272,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test_verb".to_string()));
+        let item = stock.add_item(cat, Box::new("test_verb".to_string()));
         assert_eq!(item, 0);
         assert_eq!(stock.categories[cat].item_count, 1);
     }
@@ -282,7 +282,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test_verb".to_string()));
+        let item = stock.add_item(cat, Box::new("test_verb".to_string()));
 
         let lcon = Stock::to_lcon(item);
         assert_eq!(lcon.get_id(), Some(0));
@@ -312,7 +312,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test".to_string()));
+        let item = stock.add_item(cat, Box::new("test".to_string()));
         let usage = stock.new_usage(item, "English");
         assert_eq!(stock.usages[usage].item, item);
         assert_eq!(stock.usages[usage].language, "English");
@@ -323,7 +323,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test".to_string()));
+        let item = stock.add_item(cat, Box::new("test".to_string()));
         let usage = stock.new_usage(item, "English");
 
         let form = Lcon::of_id(0).with_person(THIRD_PERSON).with_number(SINGULAR_NUMBER);
@@ -338,7 +338,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test".to_string()));
+        let item = stock.add_item(cat, Box::new("test".to_string()));
         let usage = stock.new_usage(item, "English");
 
         let singular = Lcon::of_id(0).with_number(SINGULAR_NUMBER);
@@ -354,7 +354,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test".to_string()));
+        let item = stock.add_item(cat, Box::new("test".to_string()));
         let usage = stock.new_usage(item, "English");
 
         let third = Lcon::of_id(0).with_person(THIRD_PERSON);
@@ -370,7 +370,7 @@ mod tests {
         // Reference: services/linguistics-module/Chapter 1/Stock Control.w
         let mut stock = Stock::new();
         let cat = stock.new_category("verb");
-        let item = stock.new(cat, Box::new("test".to_string()));
+        let item = stock.add_item(cat, Box::new("test".to_string()));
         let usage = stock.new_usage(item, "English");
 
         let plural = Lcon::of_id(0).with_number(PLURAL_NUMBER);

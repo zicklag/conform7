@@ -125,6 +125,7 @@ fn set_cell(
 }
 
 /// Helper to set a cell for both positive and negative senses.
+#[allow(dead_code)]
 fn set_cell_both_senses(
     tab: &mut VerbTabulation,
     tense: usize,
@@ -138,6 +139,7 @@ fn set_cell_both_senses(
 }
 
 /// Helper to set a cell for both senses with the same text.
+#[allow(dead_code)]
 fn set_cell_same(
     tab: &mut VerbTabulation,
     tense: usize,
@@ -147,6 +149,7 @@ fn set_cell_same(
 ) {
     set_cell_both_senses(tab, tense, person, number, text, text);
 }
+
 
 // ---------------------------------------------------------------------------
 // Conjugation creation

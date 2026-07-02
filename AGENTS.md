@@ -16,6 +16,8 @@ file. This is non-negotiable.
 The reference implementation lives at `gitignore/inform/`. Every design
 decision should be validated against it.
 
+A successfull implementation should be able to correctly compile all of the examples from the inform book and cookbook.
+
 ### 2. Reuse Non-C Inform Source
 
 All non-C Inform source that makes up the default world model must be reused

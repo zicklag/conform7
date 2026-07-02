@@ -146,6 +146,20 @@ pub enum NodeType {
     TestProposition,
     TestPhraseOption,
     TestValue,
+    // Linguistics node types (from services/linguistics-module/Chapter 1/Diagrams.w).
+    Verb,
+    UnparsedNoun,
+    Pronoun,
+    DefectiveNoun,
+    CommonNoun,
+    ProperNoun,
+    Relationship,
+    Called,
+    With,
+    And,
+    Kind,
+    PropertyList,
+    XOfY,
 }
 
 impl NodeType {
@@ -195,6 +209,19 @@ impl NodeType {
 
             Constant => metadata("CONSTANT_NT", 0, 0, Cat::Rvalue, NodeFlags::default()),
             PhraseToDecideValue => metadata("PHRASE_TO_DECIDE_VALUE_NT", 1, 1, Cat::Rvalue, NodeFlags { phrasal: true, ..NodeFlags::default() }),
+            Verb => metadata("VERB_NT", 0, 0, Cat::L3, NodeFlags::default()),
+            UnparsedNoun => metadata("UNPARSED_NOUN_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            Pronoun => metadata("PRONOUN_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            DefectiveNoun => metadata("DEFECTIVE_NOUN_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            CommonNoun => metadata("COMMON_NOUN_NT", 0, u32::MAX, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            ProperNoun => metadata("PROPER_NOUN_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            Relationship => metadata("RELATIONSHIP_NT", 0, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            Called => metadata("CALLED_NT", 2, 2, Cat::L3, NodeFlags::default()),
+            With => metadata("WITH_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            And => metadata("AND_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            Kind => metadata("KIND_NT", 0, 1, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            PropertyList => metadata("PROPERTY_LIST_NT", 0, u32::MAX, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            XOfY => metadata("X_OF_Y_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
 
             LocalVariable => metadata("LOCAL_VARIABLE_NT", 0, 0, Cat::Lvalue, NodeFlags::default()),
             NonlocalVariable => metadata("NONLOCAL_VARIABLE_NT", 0, 0, Cat::Lvalue, NodeFlags::default()),

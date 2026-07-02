@@ -502,3 +502,89 @@ mod tests {
         assert!(m.is_some(), "heading should match 'chapter 1 - X' via real grammar");
     }
 }
+
+// ---------------------------------------------------------------------------
+// <article>, <definite-article>, <indefinite-article>
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal that matches any English article word.
+///
+/// Matches "the", "a", "an", or "some" and returns the article name as the
+/// payload.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 2/Articles.w`
+#[derive(Clone, Debug)]
+pub struct ArticleInternal {
+    words: crate::linguistics::SmallWordSet<String>,
+}
+
+impl ArticleInternal {
+    /// Create a new article matcher with the given word set.
+    pub fn new(words: crate::linguistics::SmallWordSet<String>) -> Self {
+        Self { words }
+    }
+}
+
+impl InternalNonterminal for ArticleInternal {
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+        // Must consume exactly one word.
+        if wording.len() != 1 {
+            return None;
+        }
+        let word_idx = wording.start as usize;
+        let word = ctx.word_text.get(word_idx)?;
+        let word_lower = word.to_lowercase();
+        self.words.get(&word_lower).map(|article_name| {
+            InternalResult {
+                payload: InternalPayload::Article(article_name.clone()),
+            }
+        })
+    }
+}
+
+/// Create the article word sets and return the three article internal NTs.
+///
+/// Returns (article, definite_article, indefinite_article).
+pub fn make_article_internals() -> (
+    ArticleInternal,
+    ArticleInternal,
+    ArticleInternal,
+) {
+    // Definite article: "the"
+    let mut definite_words = crate::linguistics::SmallWordSet::<String>::new();
+    definite_words.insert("the".to_string(), "definite".to_string());
+
+    // Indefinite article: "a", "an", "some"
+    let mut indefinite_words = crate::linguistics::SmallWordSet::<String>::new();
+    indefinite_words.insert("a".to_string(), "indefinite".to_string());
+    indefinite_words.insert("an".to_string(), "indefinite".to_string());
+    indefinite_words.insert("some".to_string(), "indefinite".to_string());
+
+    // Combined article: all of the above
+    let mut all_words = definite_words.clone();
+    all_words.extend(indefinite_words.clone());
+
+    (
+        ArticleInternal::new(all_words),
+        ArticleInternal::new(definite_words),
+        ArticleInternal::new(indefinite_words),
+    )
+}
+
+impl InternalRegistry {
+    /// Create an [`InternalRegistry`] pre-populated with the three basic
+    /// internal nonterminals plus the three article internal nonterminals:
+    /// `article`, `definite-article`, and `indefinite-article`.
+    ///
+    /// These are the names used in the real `Syntax.preform` grammar file.
+    pub fn linguistics() -> Self {
+        let mut registry = InternalRegistry::basic();
+        let (article, definite, indefinite) = make_article_internals();
+        registry.register("article", Box::new(article));
+        registry.register("definite-article", Box::new(definite));
+        registry.register("indefinite-article", Box::new(indefinite));
+        registry
+    }
+}

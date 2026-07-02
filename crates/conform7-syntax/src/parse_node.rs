@@ -24,10 +24,12 @@ use std::fmt;
 /// In C, annotations are a flexible key/value system (see
 /// `services/syntax-module/Chapter 2/Node Annotations.w`). We start with a
 /// small closed enum and grow it as needed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Annotation {
     /// The heading level of a `HEADING_NT` node.
     HeadingLevel(HeadingLevel),
+    /// Article usage annotation for noun phrase nodes.
+    ArticleUsage(crate::linguistics::ArticleUsage),
 }
 
 /// A single node in an Inform 7 syntax tree.
@@ -94,11 +96,19 @@ impl ParseNode {
     pub fn add_annotation(&mut self, annotation: Annotation) {
         self.annotations.push(annotation);
     }
-
     /// Return the heading level annotation, if any.
     pub fn heading_level(&self) -> Option<HeadingLevel> {
-        self.annotations.iter().map(|a| match a {
-            Annotation::HeadingLevel(level) => *level,
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::HeadingLevel(level) => Some(*level),
+            _ => None,
+        }).next()
+    }
+
+    /// Return the article usage annotation, if any.
+    pub fn article_usage(&self) -> Option<&crate::linguistics::ArticleUsage> {
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::ArticleUsage(usage) => Some(usage),
+            _ => None,
         }).next()
     }
 

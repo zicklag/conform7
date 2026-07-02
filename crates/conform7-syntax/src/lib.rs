@@ -26,7 +26,8 @@ pub mod lexer;
 pub mod node_type;
 pub mod parse_node;
 pub mod preform;
-mod preform_internal;
+pub mod linguistics;
+pub(crate) mod preform_internal;
 pub mod sentence;
 pub mod structural;
 pub mod syntax_kind;
@@ -47,4 +48,5 @@ pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, Par
 pub use sentence::{break_sentences, HeadingLevel, Sentence, SentenceClassification, StructuralType};
 pub use syntax_kind::SyntaxKind;
 pub use token::Token;
+pub use linguistics::{Article, ArticleUsage, Diagrams, NounPhrases, parse_noun_phrase};
 pub use wording::Wording;

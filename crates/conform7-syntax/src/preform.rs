@@ -653,6 +653,8 @@ pub enum InternalPayload {
     Integer(i32),
     /// The name of a matched nonterminal (for `<preform-nonterminal>`).
     Nonterminal(String),
+    /// An article name (for article internal NTs).
+    Article(String),
 }
 
 /// Result of a successful internal nonterminal match.

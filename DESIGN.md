@@ -314,6 +314,128 @@ fn all_diagnostics(db: &dyn Db) -> Vec<Conform7Diagnostic> {
 }
 ```
 
+### Salsa Integration Strategy
+
+The C reference builds the world model through **sequential imperative passes**
+over the sentence list. Each pass mutates global registries. This is the natural
+approach in C, but it conflicts with Salsa's model where every tracked function
+is a pure, deterministic computation.
+
+The resolution is to **process all sentences at once** in each query, rather than
+one sentence at a time. The C compiler already decouples declaration from
+resolution across multiple passes — we make that explicit in the query graph.
+
+#### Declaration-extraction pattern
+
+Instead of a `WorldModel::process_sentence(&mut self, sentence)` that mutates
+internal state, each query takes the full sentence list and returns a complete
+table:
+
+```rust
+// Pass 1: extract every declaration from every sentence
+#[salsa::tracked]
+fn all_declarations(db: &dyn Db) -> Vec<Declaration> {
+    let sentences = break_sentences(db);
+    sentences.iter().flat_map(extract_declarations).collect()
+    // Returns: [Instance("Ms. Mary", kind:"woman", loc:"Lab"),
+    //           Kind("woman", parent:"person"),
+    //           Instance("Lab", kind:"room"),
+    //           Relation("loving", left:"person", right:"person"),
+    //           Verb("adore", means:"loving relation"), ...]
+}
+
+// Pass 2: build the kind hierarchy (pure DAG, no forward references)
+#[salsa::tracked]
+fn kinds(db: &dyn Db) -> KindTable {
+    let decls = all_declarations(db);
+    KindTable::from_declarations(decls)
+}
+
+// Pass 3: build instances, resolving kind/location references
+#[salsa::tracked]
+fn instances(db: &dyn Db) -> InstanceTable {
+    let decls = all_declarations(db);
+    let kinds = kinds(db);
+    InstanceTable::from_declarations(decls, &kinds)
+}
+```
+
+The dependency graph is explicit:
+
+```
+source_text → all_declarations → kinds → instances → world_model
+```
+
+If the user edits the sentence that defines "Lab", Salsa invalidates
+`all_declarations`, which propagates to `kinds`, `instances`, and
+`world_model`. If the user edits an unrelated rule body, only the queries
+that actually read that sentence's data are affected.
+
+#### Handling cycles
+
+I7 allows forward references that create cycles in the query graph:
+
+```
+The verb to adore means the loving relation.
+Loving relates one person to one person.
+```
+
+The first sentence references "loving relation" before it's declared. In
+Salsa, this is a cycle between `verbs` and `relations`:
+
+```rust
+#[salsa::tracked]
+fn relations(db: &dyn Db) -> RelationTable {
+    let decls = all_declarations(db);
+    let verbs = verbs(db);  // may be a cycle
+    RelationTable::from_declarations(decls, &verbs)
+}
+
+#[salsa::tracked]
+fn verbs(db: &dyn Db) -> VerbTable {
+    let decls = all_declarations(db);
+    let relations = relations(db);  // may be a cycle
+    VerbTable::from_declarations(decls, &relations)
+}
+```
+
+Salsa detects cycles at runtime. When a cycle is detected, it uses the
+**previous iteration's value** for the cyclic dependency and re-executes
+the query. This repeats until the result stabilizes — a fixpoint iteration
+that mirrors the C compiler's multi-pass approach, but automated.
+
+The cycle is resolved because the declaration-extraction pass already found
+both the verb and the relation. The first iteration builds verbs without
+knowing about relations, and relations without knowing about verbs. The
+second iteration fills in the missing references. By the third iteration,
+both tables are complete and the result stabilizes.
+
+#### What this means for data structure design now
+
+To keep the path to Salsa integration clean, we design world model data
+structures with these properties:
+
+1. **Arena allocation, not `Box` pointers.** Instead of `Box<ParseNode>`
+   trees, use `Vec<Thing>` with index handles. Arenas are Salsa-friendly
+   (they're just `&[T]` references) and avoid ownership headaches.
+
+2. **Interned IDs for named entities.** Kinds, instances, properties, verbs
+   are identified by interned IDs, not `String` or `Rc<String>`. This makes
+   comparison O(1) and fits Salsa's `#[salsa::interned]` pattern.
+
+3. **Pure construction functions.** Each table is built by a function that
+   takes inputs and returns a new table. No mutation of global state, no
+   hidden dependencies on processing order.
+
+4. **All-sentence queries, not per-sentence.** Queries process the full
+   sentence list, not individual sentences. This avoids ordering
+   dependencies and makes the dependency graph coarse enough to be
+   efficient.
+
+The frontend (lexer, sentence breaker, Preform engine, linguistics) is
+stateless computation and doesn't need Salsa. The Salsa boundary starts at
+the world model, where incrementality matters for the LSP.
+
 ---
 
 ## Parsing Strategy

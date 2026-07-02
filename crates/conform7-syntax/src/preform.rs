@@ -4,9 +4,10 @@
 //! The format is a text-based grammar definition language with ~720
 //! nonterminals for English alone.
 //!
-//! This module handles **parsing only** — loading the grammar into in-memory
-//! data structures. The matching engine (which takes a nonterminal and a
-//! wording and tries to match it) comes in a later plan.
+//! This module handles **parsing** the Preform format into in-memory data
+//! structures, and **matching** — the runtime engine that takes a nonterminal
+//! and a wording and tries to match it against all productions, with
+//! backtracking.
 //!
 //! # Format
 //!
@@ -36,7 +37,7 @@
 //!
 //! - C reference: `services/words-module/Chapter 4/Loading Preform.w`
 //! - C reference: `services/words-module/Chapter 4/Preform.w`
-
+use crate::Wording;
 use std::fmt;
 
 /// A complete Preform grammar, containing all nonterminals.
@@ -625,6 +626,226 @@ pub fn parse_preform_grammar(source: &str) -> Result<Grammar, String> {
     preform_parser::grammar(source).map_err(|e| format!("Preform parse error: {}", e))
 }
 
+// ---------------------------------------------------------------------------
+// Preform matching engine
+// ---------------------------------------------------------------------------
+
+use std::ops::Range;
+
+/// Result of a successful match against a nonterminal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Match {
+    /// Index of the production within the nonterminal that matched.
+    pub production_index: usize,
+    /// The match number of the production (either explicit or the production index).
+    pub match_number: u8,
+    /// The word range consumed by the entire match (inclusive start, exclusive end).
+    pub word_range: Range<u32>,
+}
+
+/// Match a nonterminal against a wording.
+///
+/// Tries each production of the named nonterminal in order and returns the
+/// first successful match, or `None` if no production matches.
+///
+/// `word_text` provides the text of each word by index, and `wording` specifies
+/// the range of words to match against.
+///
+/// Internal nonterminals are not matched (they require Rust function implementations)
+/// and return `None`.
+///
+/// # Examples
+///
+/// ```
+/// use conform7_syntax::{parse_preform_grammar, match_nonterminal, Wording};
+///
+/// let source = "<greeting> ::= hello world | hi there";
+/// let grammar = parse_preform_grammar(source).unwrap();
+/// let words = &["hello", "world"];
+///
+/// let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+/// assert!(m.is_some());
+/// assert_eq!(m.unwrap().match_number, 0);
+/// ```
+pub fn match_nonterminal(
+    grammar: &Grammar,
+    name: &str,
+    word_text: &[&str],
+    wording: Wording,
+) -> Option<Match> {
+    let nt = grammar.nonterminals.iter().find(|n| n.name == name)?;
+    if nt.internal {
+        return None;
+    }
+
+    let word_start = wording.start as usize;
+    let word_end = wording.end as usize;
+
+    for (prod_idx, production) in nt.productions.iter().enumerate() {
+        if try_match_production(&production.tokens, word_text, word_start, word_end, grammar).is_some() {
+            let match_number = production.match_number.unwrap_or(prod_idx as u8);
+            return Some(Match {
+                production_index: prod_idx,
+                match_number,
+                word_range: word_start as u32..word_end as u32,
+            });
+        }
+    }
+
+    None
+}
+
+/// Try to match a sequence of tokens against a range of words.
+///
+/// Returns the word ranges consumed by each token on success, or `None` on failure.
+/// Handles backtracking: for elastic tokens (wildcards, sub-nonterminals), tries
+/// different consumption lengths from minimum to maximum.
+fn try_match_production(
+    tokens: &[ProductionToken],
+    word_text: &[&str],
+    word_start: usize,
+    word_end: usize,
+    grammar: &Grammar,
+) -> Option<Vec<Range<u32>>> {
+    if tokens.is_empty() {
+        return if word_start == word_end { Some(vec![]) } else { None };
+    }
+
+    let token = &tokens[0];
+    let rest = &tokens[1..];
+    let available = word_end.saturating_sub(word_start);
+
+    match &token.category {
+        ProductionTokenCategory::FixedWord(expected) => {
+            // Check if the word at the current position matches the expected word
+            // or any of its alternatives.
+            let word_matches = |w: &str| -> bool {
+                if token.disallow_unexpected_upper && w.chars().any(|c| c.is_uppercase()) {
+                    return false;
+                }
+                true
+            };
+            let matches = word_start < word_end
+                && word_matches(word_text[word_start])
+                && (word_text[word_start] == expected.as_str()
+                    || token.alternatives.iter().any(|alt| {
+                        matches!(alt, ProductionTokenCategory::FixedWord(w) if word_text[word_start] == w.as_str())
+                    }));
+
+            let success = if token.negated { !matches } else { matches };
+
+            if success {
+                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                result.insert(0, word_start as u32..(word_start + 1) as u32);
+                Some(result)
+            } else {
+                None
+            }
+        }
+        ProductionTokenCategory::SingleWildcard => {
+            if available >= 1 {
+                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                result.insert(0, word_start as u32..(word_start + 1) as u32);
+                Some(result)
+            } else {
+                None
+            }
+        }
+        ProductionTokenCategory::MultipleWildcard => {
+            // Try consuming 1 to `available` words, shortest first (non-greedy).
+            for len in 1..=available {
+                if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                    result.insert(0, word_start as u32..(word_start + len) as u32);
+                    return Some(result);
+                }
+            }
+            None
+        }
+        ProductionTokenCategory::PossiblyEmptyWildcard => {
+            // Try consuming 0 to `available` words, shortest first.
+            for len in 0..=available {
+                if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                    result.insert(0, word_start as u32..(word_start + len) as u32);
+                    return Some(result);
+                }
+            }
+            None
+        }
+        ProductionTokenCategory::BalancedMultipleWildcard => {
+            // Try consuming 1 to `available` words, shortest first, but only
+            // where brackets are balanced.
+            for len in 1..=available {
+                if is_balanced_brackets(word_text, word_start, word_start + len) {
+                    if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                        result.insert(0, word_start as u32..(word_start + len) as u32);
+                        return Some(result);
+                    }
+                }
+            }
+            None
+        }
+        ProductionTokenCategory::SubNonterminal(sub_name) => {
+            if token.negated {
+                // Negated sub-nonterminal: succeeds if the sub-nonterminal does NOT match
+                // against any possible range. If it fails for all ranges, the negation
+                // succeeds and we consume 1 word (the minimum).
+                //
+                // Note: The C reference uses strut/lookahead logic to determine the exact
+                // range to check, then consumes that range on success. Our simple approach
+                // of consuming 1 word is correct for common cases but may fail for
+                // multi-word negated sub-NTs (e.g., `^<phrase>` where `<phrase>` matches
+                // 2+ words). Full strut support would fix this.
+                for len in 1..=available {
+                    let sub_wording = Wording::new(word_start as u32, (word_start + len) as u32);
+                    if match_nonterminal(grammar, sub_name, word_text, sub_wording).is_some() {
+                        // Sub-nonterminal matched, so negation fails.
+                        return None;
+                    }
+                }
+                // No range matched the sub-nonterminal, so negation succeeds.
+                // Consume 1 word (the minimum) and continue.
+                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                result.insert(0, word_start as u32..(word_start + 1) as u32);
+                Some(result)
+            } else {
+                // Non-negated sub-nonterminal: try matching against each possible range,
+                // including 0-length (for sub-NTs that can match empty text).
+                for len in 0..=available {
+                    let sub_wording = Wording::new(word_start as u32, (word_start + len) as u32);
+                    if match_nonterminal(grammar, sub_name, word_text, sub_wording).is_some() {
+                        if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                            result.insert(0, word_start as u32..(word_start + len) as u32);
+                            return Some(result);
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+}
+
+/// Check that brackets are balanced in a range of words.
+///
+/// Counts `(`/`)`, `[`/`]`, and `{`/`}` pairs, ensuring no closing bracket
+/// appears without a matching opener and that all openers are closed by the end.
+fn is_balanced_brackets(word_text: &[&str], start: usize, end: usize) -> bool {
+    let mut depth = 0i32;
+    for word in &word_text[start..end] {
+        match *word {
+            "(" | "[" | "{" => depth += 1,
+            ")" | "]" | "}" => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1080,5 +1301,371 @@ mod tests {
             .expect("expected a `_,/and` token");
         assert_eq!(and_token.category, ProductionTokenCategory::FixedWord(",".to_string()));
         assert!(and_token.alternatives.iter().any(|a| *a == ProductionTokenCategory::FixedWord("and".to_string())));
+    }
+
+    // -----------------------------------------------------------------------
+    // Matching engine tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_match_simple_fixed_words() {
+        let source = "<greeting> ::= hello world";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "world"];
+
+        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        assert!(m.is_some());
+        let m = m.unwrap();
+        assert_eq!(m.match_number, 0);
+        assert_eq!(m.production_index, 0);
+        assert_eq!(m.word_range, 0..2);
+    }
+
+    #[test]
+    fn test_match_no_match() {
+        let source = "<greeting> ::= hello world";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "there"];
+
+        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_multiple_productions_first_wins() {
+        let source = "<greeting> ::= hi there | hello world";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "world"];
+
+        // First production "hi there" doesn't match, second "hello world" does.
+        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        assert!(m.is_some());
+        let m = m.unwrap();
+        assert_eq!(m.production_index, 1);
+        assert_eq!(m.match_number, 1);
+    }
+
+    #[test]
+    fn test_match_single_wildcard() {
+        let source = "<a> ::= ### ###";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "world"];
+
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_multiple_wildcard() {
+        let source = "<a> ::= start ... end";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["start", "hello", "world", "end"];
+
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_multiple_wildcard_minimum() {
+        let source = "<a> ::= start ... end";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["start", "end"];
+
+        // `...` must match at least 1 word, so this should fail.
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_possibly_empty_wildcard() {
+        let source = "<a> ::= start *** end";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // `***` can match zero words.
+        let words = &["start", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_some());
+
+        // `***` can match one or more words.
+        let words = &["start", "hello", "world", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_sub_nonterminal() {
+        let source = "<word> ::= hello | world\n<phrase> ::= <word> <word>";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "world"];
+
+        let m = match_nonterminal(&grammar, "phrase", words, Wording::new(0, 2));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_sub_nonterminal_recursive() {
+        let source = "<a> ::= x | x <a>";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["x", "x", "x"];
+
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 3));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_internal_nonterminal() {
+        let source = "<internal-nt> internal";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words: &[&str] = &[];
+
+        let m = match_nonterminal(&grammar, "internal-nt", words, Wording::new(0, 0));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_nonexistent_nonterminal() {
+        let source = "<a> ::= hello";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello"];
+
+        let m = match_nonterminal(&grammar, "nonexistent", words, Wording::new(0, 1));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_empty_wording() {
+        let source = "<a> ::= ***";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words: &[&str] = &[];
+
+        // `***` matches zero words, so empty wording should match.
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 0));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_empty_wording_no_empty_wildcard() {
+        let source = "<a> ::= ...";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words: &[&str] = &[];
+
+        // `...` requires at least 1 word, so empty wording should not match.
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 0));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_alternatives() {
+        let source = "<a> ::= hello/world";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        let words = &["hello"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_some());
+
+        let words = &["world"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_some());
+
+        let words = &["foo"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_negated_fixed_word() {
+        let source = "<a> ::= ^hello world";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // "hello" is negated, so "hello world" should NOT match.
+        let words = &["hello", "world"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_none());
+
+        // "foo world" should match because "foo" != "hello".
+        let words = &["foo", "world"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_negated_sub_nonterminal() {
+        let source = "<word> ::= hello | world\n<a> ::= ^<word> foo";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // "hello foo" should NOT match because "hello" matches <word>.
+        let words = &["hello", "foo"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_none());
+
+        // "bar foo" should match because "bar" does not match <word>.
+        let words = &["bar", "foo"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_backtracking_wildcard_then_fixed() {
+        // Production: ... end
+        // Input: "hello end world end"
+        // `...` should match "hello end world" (greedy would fail because
+        // "end" would be consumed by `...` and then there's no "end" left).
+        // Non-greedy: `...` matches "hello", then "end" matches, then
+        // "world end" is left over → fail. Backtrack: `...` matches "hello end",
+        // then "end" matches "world" → fail. Backtrack: `...` matches "hello end world",
+        // then "end" matches "end" → success.
+        let source = "<a> ::= ... end";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "end", "world", "end"];
+
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_backtracking_sub_nt_then_fixed() {
+        let source = "<word> ::= hello | world\n<a> ::= <word> world";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello", "world"];
+
+        // <word> tries "hello" (1 word), then "world" must match → success.
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn test_match_production_match_number() {
+        let source = "<article> ::= /a/ a | /d/ the";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["a"];
+
+        let m = match_nonterminal(&grammar, "article", words, Wording::new(0, 1));
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().match_number, 0);
+
+        let words = &["the"];
+        let m = match_nonterminal(&grammar, "article", words, Wording::new(0, 1));
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().match_number, 3);
+    }
+
+    #[test]
+    fn test_match_balanced_wildcard() {
+        let source = "<a> ::= start ...... end";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // Balanced brackets.
+        let words = &["start", "(", "hello", ")", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 5));
+        assert!(m.is_some());
+
+        // Unbalanced brackets should fail.
+        let words = &["start", "(", "hello", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_match_real_syntax_preform_nonterminal() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../gitignore/inform/retrospective/6M62/Internal/Languages/English/Syntax.preform"
+        );
+        let source = std::fs::read_to_string(path)
+            .expect("failed to read Syntax.preform");
+        let grammar = parse_preform_grammar(&source)
+            .expect("failed to parse Syntax.preform");
+
+        // Test matching "row-of-asterisks" — a simple nonterminal with fixed words.
+        let row_nt = grammar.nonterminals.iter().find(|n| n.name == "row-of-asterisks")
+            .expect("row-of-asterisks not found");
+        assert_eq!(row_nt.productions.len(), 4);
+
+        // Match "*" against the first production.
+        let words = &["*"];
+        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        assert!(m.is_some(), "row-of-asterisks should match '*'");
+
+        // Match "**" against the second production.
+        let words = &["**"];
+        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        assert!(m.is_some(), "row-of-asterisks should match '**'");
+
+        // Match "***" against the third production (escaped).
+        let words = &["***"];
+        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        assert!(m.is_some(), "row-of-asterisks should match '***'");
+
+        // Match "****" against the fourth production.
+        let words = &["****"];
+        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        assert!(m.is_some(), "row-of-asterisks should match '****'");
+
+        // "*****" should not match any production.
+        let words = &["*****"];
+        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        assert!(m.is_none(), "row-of-asterisks should not match '*****'");
+    }
+
+    #[test]
+    fn test_match_disallow_unexpected_upper() {
+        let source = "<a> ::= _hello";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // Lowercase "hello" should match.
+        let words = &["hello"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_some(), "lowercase 'hello' should match _hello");
+
+        // Uppercase "Hello" should NOT match because of the `_` modifier.
+        let words = &["Hello"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_none(), "uppercase 'Hello' should not match _hello");
+    }
+
+    #[test]
+    fn test_match_sub_nonterminal_zero_length() {
+        // A sub-NT that can match empty text (via `***`).
+        let source = "<empty> ::= ***\n<a> ::= <empty> hello";
+        let grammar = parse_preform_grammar(source).unwrap();
+        let words = &["hello"];
+
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        assert!(m.is_some(), "<empty> should match 0 words before 'hello'");
+    }
+
+    #[test]
+    fn test_match_balanced_wildcard_with_braces() {
+        let source = "<a> ::= start ...... end";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // Balanced braces.
+        let words = &["start", "{", "hello", "}", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 5));
+        assert!(m.is_some(), "balanced braces should match ......");
+
+        // Unbalanced braces should fail.
+        let words = &["start", "{", "hello", "end"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        assert!(m.is_none(), "unbalanced braces should not match ......");
+    }
+
+    #[test]
+    fn test_match_negated_sub_nonterminal_multi_word() {
+        // Note: This test documents a known limitation. The current implementation
+        // consumes only 1 word for negated sub-NTs, which may fail for multi-word
+        // negated sub-NTs. Full strut/lookahead support would fix this.
+        let source = "<word> ::= hello world\n<a> ::= ^<word> foo";
+        let grammar = parse_preform_grammar(source).unwrap();
+
+        // "hello there foo": <word> doesn't match "hello there" (2 words),
+        // so negation succeeds. Current impl consumes 1 word ("hello"),
+        // then "there foo" doesn't match "foo" → fails.
+        // This is a known limitation.
+        let words = &["hello", "there", "foo"];
+        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 3));
+        // Currently expected to fail due to the limitation.
+        // When strut support is added, this should succeed.
+        assert!(m.is_none(), "known limitation: multi-word negated sub-NT");
     }
 }

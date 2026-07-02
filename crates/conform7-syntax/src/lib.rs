@@ -34,7 +34,7 @@ pub mod wording;
 
 pub use heading::parse_heading;
 pub use lexer::Lexer;
-pub use preform::parse_preform_grammar;
+pub use preform::{parse_preform_grammar, match_nonterminal, Match};
 pub use structural::parse_structural;
 pub use node_type::{NodeCategory, NodeFlags, NodeType, NodeTypeMetadata};
 pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, ParseNodeChildren};

@@ -26,6 +26,7 @@ pub mod lexer;
 pub mod node_type;
 pub mod parse_node;
 pub mod preform;
+mod preform_internal;
 pub mod sentence;
 pub mod structural;
 pub mod syntax_kind;
@@ -34,7 +35,12 @@ pub mod wording;
 
 pub use heading::parse_heading;
 pub use lexer::Lexer;
-pub use preform::{parse_preform_grammar, match_nonterminal, Match};
+pub use preform::{
+    match_nonterminal_impl, InternalNonterminal, InternalPayload,
+    InternalRegistry, InternalResult, Match, Nonterminal, PreformContext, Production,
+    ProductionToken, ProductionTokenCategory, Grammar, parse_preform_grammar,
+};
+
 pub use structural::parse_structural;
 pub use node_type::{NodeCategory, NodeFlags, NodeType, NodeTypeMetadata};
 pub use parse_node::{traverse_depth_first, ParseNode, ParseNodeAlternatives, ParseNodeChildren};

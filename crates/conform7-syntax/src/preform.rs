@@ -508,12 +508,23 @@ peg::parser! {
         rule nonterminal_start()
             = "<" n:$((!['>'] [_])+) ">" ws() ("::=" / "internal")
 
+        // Whitespace within a production: spaces, tabs, comments, and single newlines.
+        // Does NOT consume blank lines (two consecutive newlines), which separate
+        // nonterminal declarations. This allows tabular multi-line productions
+        // like `<en-article-declension>` where tokens are separated by newlines.
+        rule production_ws()
+            = quiet!{ ([' ' | '\t'] / comment() / "\n" !"\n")* }
+
         // One element of a production: a token, brace marker, or match number.
+        // Stops when the next content looks like a new nonterminal declaration.
+        // Consumes whitespace first, then checks for nonterminal start, to handle
+        // tabular multi-line productions like `<en-article-declension>` where
+        // tokens are separated by newlines.
         rule production_element() -> ProductionElement
-            = ws() n:production_match_number() { ProductionElement::MatchNumber(n) }
-            / ws() "{" { ProductionElement::OpenBrace }
-            / ws() "}" { ProductionElement::CloseBrace }
-            / ws() token:production_token() { ProductionElement::Token(token) }
+            = production_ws() !nonterminal_start() n:production_match_number() { ProductionElement::MatchNumber(n) }
+            / production_ws() !nonterminal_start() "{" { ProductionElement::OpenBrace }
+            / production_ws() !nonterminal_start() "}" { ProductionElement::CloseBrace }
+            / production_ws() !nonterminal_start() token:production_token() { ProductionElement::Token(token) }
 
         // Production match number: /a/ to /z/ and /aa/ to /zz/.
         rule production_match_number() -> u8
@@ -591,7 +602,7 @@ peg::parser! {
             = w:$(escaped_word_char()+) { split_word(w) }
 
         rule plain_word_char() -> ()
-            = ![' ' | '\t' | '\n' | '\r' | '|' | '{' | '}' | '[' | ']' | '_' | '^' | '?' | '&' | '\\' | '<' | '>'] [_]
+            = ![' ' | '\t' | '\n' | '\r' | '|' | '{' | '}' | '[' | ']' | '_' | '^' | '?' | '&' | '\\' | '<'] [_]
 
         rule escaped_word_char() -> ()
             = ![' ' | '\t' | '\n' | '\r' | '|'] [_]
@@ -630,6 +641,96 @@ pub fn parse_preform_grammar(source: &str) -> Result<Grammar, String> {
 // Preform matching engine
 // ---------------------------------------------------------------------------
 
+/// Payload produced by a successful internal nonterminal match.
+///
+/// Corresponds to the `Q` (integer) and `QP` (pointer) results in the C
+/// reference (`services/words-module/Chapter 4/Preform.w`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InternalPayload {
+    /// No meaningful payload (zero-width internals like `<if-start-of-paragraph>`).
+    None,
+    /// An integer result (e.g., the word number for `<quoted-text>`).
+    Integer(i32),
+    /// The name of a matched nonterminal (for `<preform-nonterminal>`).
+    Nonterminal(String),
+}
+
+/// Result of a successful internal nonterminal match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InternalResult {
+    /// The payload produced by the internal NT.
+    pub payload: InternalPayload,
+}
+
+/// Context passed to internal nonterminal matchers.
+///
+/// Bundles the information needed by the simple position/name internals:
+/// the grammar, the word-text slice, and paragraph-start information.
+#[derive(Clone, Debug)]
+pub struct PreformContext<'a> {
+    /// The grammar being matched against.
+    pub grammar: &'a Grammar,
+    /// The text of each word by index.
+    pub word_text: &'a [&'a str],
+    /// True if the first word of the wording is at the start of a paragraph.
+    pub is_paragraph_start: bool,
+}
+
+/// Trait for internal nonterminal implementations.
+///
+/// Each internal NT in the Preform grammar (declared with `internal` in
+/// `Syntax.preform`) has a corresponding Rust implementation that implements
+/// this trait.
+///
+/// # References
+///
+/// - C reference: `services/words-module/Chapter 4/Nonterminals.w` — the
+///   `internal_definition` function pointer on `nonterminal`.
+/// - C reference: `services/words-module/Chapter 4/Basic Nonterminals.w` —
+///   example implementations like `<if-start-of-paragraph>`, `<if-not-cap>`,
+///   `<preform-nonterminal>`.
+pub trait InternalNonterminal: Send + Sync {
+    /// Try to match this internal nonterminal against the given wording.
+    ///
+    /// Returns `Some(InternalResult)` on success, or `None` on failure.
+    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult>;
+}
+
+/// Registry mapping nonterminal names to their Rust implementations.
+///
+/// Internal NTs are looked up by name (without angle brackets) when the
+/// matching engine encounters an `internal` nonterminal.
+#[derive(Default)]
+pub struct InternalRegistry {
+    implementations: std::collections::HashMap<String, Box<dyn InternalNonterminal>>,
+}
+
+impl InternalRegistry {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self {
+            implementations: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Register an internal nonterminal implementation.
+    pub fn register(&mut self, name: &str, impl_: Box<dyn InternalNonterminal>) {
+        self.implementations.insert(name.to_string(), impl_);
+    }
+
+    /// Look up an internal nonterminal by name.
+    pub fn get(&self, name: &str) -> Option<&dyn InternalNonterminal> {
+        self.implementations.get(name).map(|b| b.as_ref())
+    }
+}
+
+impl fmt::Debug for InternalRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InternalRegistry")
+            .field("names", &self.implementations.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
 use std::ops::Range;
 
 /// Result of a successful match against a nonterminal.
@@ -641,40 +742,39 @@ pub struct Match {
     pub match_number: u8,
     /// The word range consumed by the entire match (inclusive start, exclusive end).
     pub word_range: Range<u32>,
+    /// If the match was produced by an internal nonterminal, the internal result.
+    pub internal: Option<InternalResult>,
 }
 
-/// Match a nonterminal against a wording.
+
+/// Match a nonterminal against a wording with full context and registry.
 ///
-/// Tries each production of the named nonterminal in order and returns the
-/// first successful match, or `None` if no production matches.
+/// This is the main entry point for the Preform matching engine. It handles
+/// both regular nonterminals (defined by grammar productions) and internal
+/// nonterminals (implemented in Rust via the `InternalRegistry`).
 ///
-/// `word_text` provides the text of each word by index, and `wording` specifies
-/// the range of words to match against.
-///
-/// Internal nonterminals are not matched (they require Rust function implementations)
-/// and return `None`.
-///
-/// # Examples
-///
-/// ```
-/// use conform7_syntax::{parse_preform_grammar, match_nonterminal, Wording};
-///
-/// let source = "<greeting> ::= hello world | hi there";
-/// let grammar = parse_preform_grammar(source).unwrap();
-/// let words = &["hello", "world"];
-///
-/// let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
-/// assert!(m.is_some());
-/// assert_eq!(m.unwrap().match_number, 0);
-/// ```
-pub fn match_nonterminal(
-    grammar: &Grammar,
+/// For internal nonterminals, looks up the implementation in `registry` and
+/// delegates to it. If no implementation is registered, returns `None`.
+pub fn match_nonterminal_impl(
+    ctx: &PreformContext,
+    registry: &InternalRegistry,
     name: &str,
-    word_text: &[&str],
     wording: Wording,
 ) -> Option<Match> {
-    let nt = grammar.nonterminals.iter().find(|n| n.name == name)?;
+    let nt = ctx.grammar.nonterminals.iter().find(|n| n.name == name)?;
     if nt.internal {
+        // Look up the internal NT implementation in the registry.
+        if let Some(impl_) = registry.get(name) {
+            let result = impl_.match_nonterminal(ctx, wording)?;
+            let word_start = wording.start;
+            let word_end = wording.end;
+            return Some(Match {
+                production_index: 0,
+                match_number: 0,
+                word_range: word_start..word_end,
+                internal: Some(result),
+            });
+        }
         return None;
     }
 
@@ -682,12 +782,13 @@ pub fn match_nonterminal(
     let word_end = wording.end as usize;
 
     for (prod_idx, production) in nt.productions.iter().enumerate() {
-        if try_match_production(&production.tokens, word_text, word_start, word_end, grammar).is_some() {
+        if try_match_production(&production.tokens, ctx, registry, word_start, word_end).is_some() {
             let match_number = production.match_number.unwrap_or(prod_idx as u8);
             return Some(Match {
                 production_index: prod_idx,
                 match_number,
                 word_range: word_start as u32..word_end as u32,
+                internal: None,
             });
         }
     }
@@ -702,10 +803,10 @@ pub fn match_nonterminal(
 /// different consumption lengths from minimum to maximum.
 fn try_match_production(
     tokens: &[ProductionToken],
-    word_text: &[&str],
+    ctx: &PreformContext,
+    registry: &InternalRegistry,
     word_start: usize,
     word_end: usize,
-    grammar: &Grammar,
 ) -> Option<Vec<Range<u32>>> {
     if tokens.is_empty() {
         return if word_start == word_end { Some(vec![]) } else { None };
@@ -714,6 +815,7 @@ fn try_match_production(
     let token = &tokens[0];
     let rest = &tokens[1..];
     let available = word_end.saturating_sub(word_start);
+    let word_text = ctx.word_text;
 
     match &token.category {
         ProductionTokenCategory::FixedWord(expected) => {
@@ -735,7 +837,7 @@ fn try_match_production(
             let success = if token.negated { !matches } else { matches };
 
             if success {
-                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                let mut result = try_match_production(rest, ctx, registry, word_start + 1, word_end)?;
                 result.insert(0, word_start as u32..(word_start + 1) as u32);
                 Some(result)
             } else {
@@ -744,7 +846,7 @@ fn try_match_production(
         }
         ProductionTokenCategory::SingleWildcard => {
             if available >= 1 {
-                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                let mut result = try_match_production(rest, ctx, registry, word_start + 1, word_end)?;
                 result.insert(0, word_start as u32..(word_start + 1) as u32);
                 Some(result)
             } else {
@@ -754,7 +856,7 @@ fn try_match_production(
         ProductionTokenCategory::MultipleWildcard => {
             // Try consuming 1 to `available` words, shortest first (non-greedy).
             for len in 1..=available {
-                if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                if let Some(mut result) = try_match_production(rest, ctx, registry, word_start + len, word_end) {
                     result.insert(0, word_start as u32..(word_start + len) as u32);
                     return Some(result);
                 }
@@ -764,7 +866,7 @@ fn try_match_production(
         ProductionTokenCategory::PossiblyEmptyWildcard => {
             // Try consuming 0 to `available` words, shortest first.
             for len in 0..=available {
-                if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                if let Some(mut result) = try_match_production(rest, ctx, registry, word_start + len, word_end) {
                     result.insert(0, word_start as u32..(word_start + len) as u32);
                     return Some(result);
                 }
@@ -776,7 +878,7 @@ fn try_match_production(
             // where brackets are balanced.
             for len in 1..=available {
                 if is_balanced_brackets(word_text, word_start, word_start + len) {
-                    if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                    if let Some(mut result) = try_match_production(rest, ctx, registry, word_start + len, word_end) {
                         result.insert(0, word_start as u32..(word_start + len) as u32);
                         return Some(result);
                     }
@@ -797,14 +899,14 @@ fn try_match_production(
                 // 2+ words). Full strut support would fix this.
                 for len in 1..=available {
                     let sub_wording = Wording::new(word_start as u32, (word_start + len) as u32);
-                    if match_nonterminal(grammar, sub_name, word_text, sub_wording).is_some() {
+                    if match_nonterminal_impl(ctx, registry, sub_name, sub_wording).is_some() {
                         // Sub-nonterminal matched, so negation fails.
                         return None;
                     }
                 }
                 // No range matched the sub-nonterminal, so negation succeeds.
                 // Consume 1 word (the minimum) and continue.
-                let mut result = try_match_production(rest, word_text, word_start + 1, word_end, grammar)?;
+                let mut result = try_match_production(rest, ctx, registry, word_start + 1, word_end)?;
                 result.insert(0, word_start as u32..(word_start + 1) as u32);
                 Some(result)
             } else {
@@ -812,8 +914,8 @@ fn try_match_production(
                 // including 0-length (for sub-NTs that can match empty text).
                 for len in 0..=available {
                     let sub_wording = Wording::new(word_start as u32, (word_start + len) as u32);
-                    if match_nonterminal(grammar, sub_name, word_text, sub_wording).is_some() {
-                        if let Some(mut result) = try_match_production(rest, word_text, word_start + len, word_end, grammar) {
+                    if match_nonterminal_impl(ctx, registry, sub_name, sub_wording).is_some() {
+                        if let Some(mut result) = try_match_production(rest, ctx, registry, word_start + len, word_end) {
                             result.insert(0, word_start as u32..(word_start + len) as u32);
                             return Some(result);
                         }
@@ -1313,7 +1415,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello", "world"];
 
-        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "greeting", Wording::new(0, 2));
         assert!(m.is_some());
         let m = m.unwrap();
         assert_eq!(m.match_number, 0);
@@ -1327,7 +1429,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello", "there"];
 
-        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "greeting", Wording::new(0, 2));
         assert!(m.is_none());
     }
 
@@ -1338,7 +1440,7 @@ mod tests {
         let words = &["hello", "world"];
 
         // First production "hi there" doesn't match, second "hello world" does.
-        let m = match_nonterminal(&grammar, "greeting", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "greeting", Wording::new(0, 2));
         assert!(m.is_some());
         let m = m.unwrap();
         assert_eq!(m.production_index, 1);
@@ -1351,7 +1453,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello", "world"];
 
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_some());
     }
 
@@ -1361,7 +1463,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["start", "hello", "world", "end"];
 
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 4));
         assert!(m.is_some());
     }
 
@@ -1372,7 +1474,7 @@ mod tests {
         let words = &["start", "end"];
 
         // `...` must match at least 1 word, so this should fail.
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_none());
     }
 
@@ -1383,12 +1485,12 @@ mod tests {
 
         // `***` can match zero words.
         let words = &["start", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_some());
 
         // `***` can match one or more words.
         let words = &["start", "hello", "world", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 4));
         assert!(m.is_some());
     }
 
@@ -1398,7 +1500,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello", "world"];
 
-        let m = match_nonterminal(&grammar, "phrase", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "phrase", Wording::new(0, 2));
         assert!(m.is_some());
     }
 
@@ -1408,7 +1510,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["x", "x", "x"];
 
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 3));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 3));
         assert!(m.is_some());
     }
 
@@ -1418,7 +1520,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words: &[&str] = &[];
 
-        let m = match_nonterminal(&grammar, "internal-nt", words, Wording::new(0, 0));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "internal-nt", Wording::new(0, 0));
         assert!(m.is_none());
     }
 
@@ -1428,7 +1530,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello"];
 
-        let m = match_nonterminal(&grammar, "nonexistent", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "nonexistent", Wording::new(0, 1));
         assert!(m.is_none());
     }
 
@@ -1439,7 +1541,7 @@ mod tests {
         let words: &[&str] = &[];
 
         // `***` matches zero words, so empty wording should match.
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 0));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 0));
         assert!(m.is_some());
     }
 
@@ -1450,7 +1552,7 @@ mod tests {
         let words: &[&str] = &[];
 
         // `...` requires at least 1 word, so empty wording should not match.
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 0));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 0));
         assert!(m.is_none());
     }
 
@@ -1460,15 +1562,15 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
 
         let words = &["hello"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_some());
 
         let words = &["world"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_some());
 
         let words = &["foo"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_none());
     }
 
@@ -1479,12 +1581,12 @@ mod tests {
 
         // "hello" is negated, so "hello world" should NOT match.
         let words = &["hello", "world"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_none());
 
         // "foo world" should match because "foo" != "hello".
         let words = &["foo", "world"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_some());
     }
 
@@ -1495,12 +1597,12 @@ mod tests {
 
         // "hello foo" should NOT match because "hello" matches <word>.
         let words = &["hello", "foo"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_none());
 
         // "bar foo" should match because "bar" does not match <word>.
         let words = &["bar", "foo"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_some());
     }
 
@@ -1518,7 +1620,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello", "end", "world", "end"];
 
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 4));
         assert!(m.is_some());
     }
 
@@ -1529,7 +1631,7 @@ mod tests {
         let words = &["hello", "world"];
 
         // <word> tries "hello" (1 word), then "world" must match → success.
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 2));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 2));
         assert!(m.is_some());
     }
 
@@ -1539,12 +1641,12 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["a"];
 
-        let m = match_nonterminal(&grammar, "article", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "article", Wording::new(0, 1));
         assert!(m.is_some());
         assert_eq!(m.unwrap().match_number, 0);
 
         let words = &["the"];
-        let m = match_nonterminal(&grammar, "article", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "article", Wording::new(0, 1));
         assert!(m.is_some());
         assert_eq!(m.unwrap().match_number, 3);
     }
@@ -1556,12 +1658,12 @@ mod tests {
 
         // Balanced brackets.
         let words = &["start", "(", "hello", ")", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 5));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 5));
         assert!(m.is_some());
 
         // Unbalanced brackets should fail.
         let words = &["start", "(", "hello", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 4));
         assert!(m.is_none());
     }
 
@@ -1583,27 +1685,27 @@ mod tests {
 
         // Match "*" against the first production.
         let words = &["*"];
-        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "row-of-asterisks", Wording::new(0, 1));
         assert!(m.is_some(), "row-of-asterisks should match '*'");
 
         // Match "**" against the second production.
         let words = &["**"];
-        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "row-of-asterisks", Wording::new(0, 1));
         assert!(m.is_some(), "row-of-asterisks should match '**'");
 
         // Match "***" against the third production (escaped).
         let words = &["***"];
-        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "row-of-asterisks", Wording::new(0, 1));
         assert!(m.is_some(), "row-of-asterisks should match '***'");
 
         // Match "****" against the fourth production.
         let words = &["****"];
-        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "row-of-asterisks", Wording::new(0, 1));
         assert!(m.is_some(), "row-of-asterisks should match '****'");
 
         // "*****" should not match any production.
         let words = &["*****"];
-        let m = match_nonterminal(&grammar, "row-of-asterisks", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "row-of-asterisks", Wording::new(0, 1));
         assert!(m.is_none(), "row-of-asterisks should not match '*****'");
     }
 
@@ -1614,12 +1716,12 @@ mod tests {
 
         // Lowercase "hello" should match.
         let words = &["hello"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_some(), "lowercase 'hello' should match _hello");
 
         // Uppercase "Hello" should NOT match because of the `_` modifier.
         let words = &["Hello"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_none(), "uppercase 'Hello' should not match _hello");
     }
 
@@ -1630,7 +1732,7 @@ mod tests {
         let grammar = parse_preform_grammar(source).unwrap();
         let words = &["hello"];
 
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 1));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 1));
         assert!(m.is_some(), "<empty> should match 0 words before 'hello'");
     }
 
@@ -1641,12 +1743,12 @@ mod tests {
 
         // Balanced braces.
         let words = &["start", "{", "hello", "}", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 5));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 5));
         assert!(m.is_some(), "balanced braces should match ......");
 
         // Unbalanced braces should fail.
         let words = &["start", "{", "hello", "end"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 4));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 4));
         assert!(m.is_none(), "unbalanced braces should not match ......");
     }
 
@@ -1663,9 +1765,49 @@ mod tests {
         // then "there foo" doesn't match "foo" → fails.
         // This is a known limitation.
         let words = &["hello", "there", "foo"];
-        let m = match_nonterminal(&grammar, "a", words, Wording::new(0, 3));
+        let m = match_nonterminal_impl(&PreformContext { grammar: &grammar, word_text: words, is_paragraph_start: false }, &InternalRegistry::basic(), "a", Wording::new(0, 3));
         // Currently expected to fail due to the limitation.
         // When strut support is added, this should succeed.
         assert!(m.is_none(), "known limitation: multi-word negated sub-NT");
+    }
+
+    #[test]
+    fn test_current_syntax_preform_parses() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../gitignore/inform/inform7/Internal/Languages/English/Syntax.preform"
+        );
+        let source = std::fs::read_to_string(path)
+            .expect("failed to read Syntax.preform");
+        let grammar = parse_preform_grammar(&source)
+            .expect("failed to parse Syntax.preform");
+        // The English Syntax.preform has ~720 nonterminals.
+        assert!(
+            grammar.nonterminals.len() > 700,
+            "expected ~720 nonterminals, got {}",
+            grammar.nonterminals.len()
+        );
+        assert_eq!(grammar.language.as_deref(), Some("English"));
+        let names: Vec<&str> = grammar.nonterminals.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"if-start-of-paragraph"), "missing if-start-of-paragraph");
+        assert!(names.contains(&"if-not-cap"), "missing if-not-cap");
+        assert!(names.contains(&"preform-nonterminal"), "missing preform-nonterminal");
+        assert!(names.contains(&"dividing-sentence"), "missing dividing-sentence");
+    }
+
+    #[test]
+    fn test_multi_line_tabular_production() {
+        let source = "<en-article-declension> ::=
+    a           a    a
+                some some |
+    the         the  the
+                the  the";
+        let grammar = parse_preform_grammar(source).unwrap();
+        assert_eq!(grammar.nonterminals.len(), 1);
+        let nt = &grammar.nonterminals[0];
+        assert_eq!(nt.name, "en-article-declension");
+        assert_eq!(nt.productions.len(), 2);
+        assert_eq!(nt.productions[0].tokens.len(), 5);
+        assert_eq!(nt.productions[1].tokens.len(), 5);
     }
 }

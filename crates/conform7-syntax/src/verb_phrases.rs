@@ -316,7 +316,7 @@ impl VerbPhrases {
 
             // Build the diagram.
             let node = Self::build_diagram(
-                wording, pos, consumed, vu_ref, form_ref,
+                wording, pos, consumed, vu_ref, form_ref, verb_ref,
                 subject_wording, object_wording,
                 prep_consumed, second_prep_consumed,
                 ctx, registry, verbs_registry,
@@ -488,12 +488,14 @@ impl VerbPhrases {
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `@<Check whether any sense of this verb form will accept this usage
+#[allow(clippy::too_many_arguments)]
     fn build_diagram(
         _wording: Wording,
         pos: usize,
         consumed: usize,
         vu_ref: VerbUsageRef,
         form_ref: VerbFormRef,
+        verb_ref: crate::verbs::VerbRef,
         subject_wording: Wording,
         object_wording: Wording,
         _prep_consumed: usize,
@@ -515,11 +517,21 @@ impl VerbPhrases {
         vp_pn.set_preposition(form.preposition);
         vp_pn.set_second_preposition(form.second_clause_preposition);
 
+        // Check for certainty adverbs in the verb wording.
+        // The <certainty> internal NT matches adverbs like "always", "never", etc.
+        if let Some(result) = match_nonterminal_impl(ctx, registry, "certainty", verb_wording) {
+            if let Some(internal) = result.internal {
+                if let crate::preform::InternalPayload::Integer(level) = internal.payload {
+                    vp_pn.add_annotation(crate::parse_node::Annotation::VerbalCertainty(level));
+                }
+            }
+        }
+
         // Build the noun phrase wordings array for accept.
         let nps = [subject_wording, object_wording, Wording::EMPTY];
 
         // Call accept to try each sense.
-        Self::accept(form_ref, &mut vp_pn, &nps, ctx, registry, verbs_registry)
+        Self::accept(form_ref, verb_ref, &mut vp_pn, &nps, ctx, registry, verbs_registry)
     }
     // -----------------------------------------------------------------------
     // Accept
@@ -534,6 +546,7 @@ impl VerbPhrases {
     ///   `VerbPhrases::accept` (lines 472-496).
     pub fn accept(
         vf: VerbFormRef,
+        verb_ref: crate::verbs::VerbRef,
         vp_pn: &mut ParseNode,
         nps: &[Wording; 3],
         ctx: &PreformContext,
@@ -556,7 +569,7 @@ impl VerbPhrases {
             }
 
             // Fall back to the regular meaning.
-            return Self::default_verb(&sense.vm, vp_pn, nps, ctx, registry, verbs_registry);
+            return Self::default_verb(&sense.vm, verb_ref, vp_pn, nps, ctx, registry, verbs_registry);
         }
 
         None
@@ -575,7 +588,8 @@ impl VerbPhrases {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `VerbPhrases::default_verb` (lines 503-527).
     pub fn default_verb(
-        vm: &VerbMeaning,
+        _vm: &VerbMeaning,
+        verb_ref: crate::verbs::VerbRef,
         vp_pn: &mut ParseNode,
         nps: &[Wording; 3],
         ctx: &PreformContext,
@@ -596,17 +610,7 @@ impl VerbPhrases {
         if !object_wording.is_empty() {
             if let Some(object_node) = NounPhrases::parse_np_unparsed(ctx, registry, object_wording) {
                 // For non-copular verbs, wrap the object in a RELATIONSHIP_NT.
-                let is_copular = verbs_registry.copular_verb.is_some()
-                    && verbs_registry.verbs.iter().any(|v| {
-                        v.first_form.and_then(|f| {
-                            verbs_registry.forms.get(f)
-                        }).map(|form| {
-                            form.list_of_senses.first()
-                                .and_then(|&s| verbs_registry.senses.get(s))
-                                .map(|sense| std::ptr::eq(&sense.vm, vm))
-                                .unwrap_or(false)
-                        }).unwrap_or(false)
-                    });
+                let is_copular = verbs_registry.copular_verb == Some(verb_ref);
 
                 if is_copular {
                     vp_pn.append_child(object_node);
@@ -678,6 +682,13 @@ impl VerbPhrases {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `VerbPhrases::perform_of_surgery` (lines 610-629).
     pub fn perform_of_surgery(p: &mut ParseNode) -> bool {
+        // DEFERRED: This surgery requires access to the word text to find "of"
+        // in the wording. When the word text context is available, implement:
+        // 1. Get the word text for the wording range
+        // 2. Find the position of "of" in the words
+        // 3. Split into X_OF_Y_NT with left and right children
+        //
+        // C reference: services/linguistics-module/Chapter 4/Verb Phrases.w lines 610-629
         if p.node_type() != NodeType::UnparsedNoun {
             return false;
         }
@@ -686,16 +697,6 @@ impl VerbPhrases {
         if wording.is_empty() {
             return false;
         }
-
-        // We need access to the word text to find "of".
-        // Since we don't have the context here, we check the wording range.
-        // The actual "of" detection would need the word text from the context.
-        // For now, this is a structural check based on the wording range.
-
-        // In the full implementation, we would:
-        // 1. Get the word text for the wording range
-        // 2. Find the position of "of" in the words
-        // 3. Split into X_OF_Y_NT with left and right children
 
         false
     }
@@ -710,6 +711,11 @@ impl VerbPhrases {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `VerbPhrases::perform_location_surgery` (lines 651-673).
     pub fn perform_location_surgery(p: &mut ParseNode) -> bool {
+        // DEFERRED: This surgery restructures RELATIONSHIP_NT -> AND_NT -> [left, right]
+        // into AND_NT -> [RELATIONSHIP_NT -> left, RELATIONSHIP_NT -> right].
+        // Requires full tree restructuring logic.
+        //
+        // C reference: services/linguistics-module/Chapter 4/Verb Phrases.w lines 651-673
         if p.node_type() != NodeType::Relationship {
             return false;
         }
@@ -719,24 +725,19 @@ impl VerbPhrases {
             return false;
         }
 
-        // Location surgery would restructure:
-        //   RELATIONSHIP_NT -> AND_NT -> [left, right]
-        // into:
-        //   AND_NT -> [RELATIONSHIP_NT -> left, RELATIONSHIP_NT -> right]
-
         false
     }
-
-    /// Perform "called surgery" — fix `X called Y` ordering.
-    ///
     /// Checks if the node is a `CALLED_NT` with a `RELATIONSHIP_NT` child
     /// and swaps the node types to fix the ordering.
     ///
     /// # References
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
-    ///   `VerbPhrases::perform_called_surgery` (lines 682-696).
     pub fn perform_called_surgery(p: &mut ParseNode) -> bool {
+        // DEFERRED: This surgery swaps node types to fix ordering in CALLED_NT nodes.
+        // Requires full tree restructuring logic.
+        //
+        // C reference: services/linguistics-module/Chapter 4/Verb Phrases.w lines 682-696
         if p.node_type() != NodeType::Called {
             return false;
         }
@@ -745,8 +746,6 @@ impl VerbPhrases {
         if p.find_child(NodeType::Relationship).is_none() {
             return false;
         }
-
-        // Called surgery would swap the node types to fix ordering.
 
         false
     }

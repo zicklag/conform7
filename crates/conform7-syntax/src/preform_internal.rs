@@ -45,7 +45,7 @@ use crate::Wording;
 pub struct IfStartOfParagraph;
 
 impl InternalNonterminal for IfStartOfParagraph {
-    fn match_nonterminal(&self, ctx: &PreformContext, _wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, _wording: Wording) -> Option<InternalResult> {
         if ctx.is_paragraph_start {
             Some(InternalResult {
                 payload: InternalPayload::None,
@@ -95,7 +95,7 @@ impl InternalNonterminal for IfStartOfParagraph {
 #[derive(Clone, Debug)]
 pub struct IfNotCap;
 impl InternalNonterminal for IfNotCap {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         // In C, a zero-width internal (min_words==max_words==0) is invoked with
         // an EMPTY wording `Wordings::new(wn, wn-1)`, but `Wordings::first_wn(W)`
         // still returns `wn` (the next unconsumed word). So we peek at the word
@@ -151,7 +151,7 @@ impl InternalNonterminal for IfNotCap {
 pub struct PreformNonterminal;
 
 impl InternalNonterminal for PreformNonterminal {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         if wording.len() != 1 {
             return None;
         }
@@ -871,6 +871,242 @@ mod tests {
         assert!(names.contains(&"pre-verb-certainty"), "missing pre-verb-certainty");
         assert!(names.contains(&"post-verb-certainty"), "missing post-verb-certainty");
     }
+
+    // -----------------------------------------------------------------------
+    // <sentence> internal NT tests
+    // -----------------------------------------------------------------------
+
+    /// Helper to create a test verb registry with copular and non-copular verbs.
+    fn make_test_verbs() -> crate::verbs::Verbs {
+        use crate::verbs::{VerbMeaning, SVO_FS_BIT, VO_FS_BIT};
+        use crate::word_assemblage::WordAssemblage;
+
+        let mut v = crate::verbs::Verbs::new();
+
+        // Create a copular verb "to be".
+        let be_verb = v.new_verb(None, true);
+        v.add_form(be_verb, None, None, VerbMeaning::regular(Box::new("to be")), SVO_FS_BIT);
+
+        let cat = v.stock.new_category("verb");
+        let item = v.stock.add_item(cat, Box::new(be_verb));
+        let usage = v.stock.new_usage(item, "English");
+
+        let is_usage = v.new_usage(WordAssemblage::lit_1("is"), false, usage, None).unwrap();
+        v.new_usage(WordAssemblage::lit_1("are"), false, usage, None);
+        v.new_usage(WordAssemblage::lit_1("was"), false, usage, None);
+        v.new_usage(WordAssemblage::lit_1("were"), false, usage, None);
+
+        // Create a non-copular verb "to carry".
+        let carry_verb = v.new_verb(None, false);
+        v.add_form(carry_verb, None, None, VerbMeaning::regular(Box::new("to carry")), SVO_FS_BIT | VO_FS_BIT);
+
+        let item2 = v.stock.add_item(cat, Box::new(carry_verb));
+        let usage2 = v.stock.new_usage(item2, "English");
+
+        let carry_usage = v.new_usage(WordAssemblage::lit_1("carry"), false, usage2, None).unwrap();
+        v.new_usage(WordAssemblage::lit_1("carries"), false, usage2, None);
+        v.new_usage(WordAssemblage::lit_1("carried"), false, usage2, None);
+
+        // Create tiers and add usages to them.
+        let tier = v.new_tier(100);
+        v.add_usage_to_tier(is_usage, tier);
+        v.add_usage_to_tier(carry_usage, tier);
+
+        v
+    }
+    #[test]
+    fn test_sentence_copular() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let grammar = parse_preform_grammar(
+            "<sentence> internal\n<nonimperative-verb> internal\n<negated-noncopular-verb-present> internal\n<np-unparsed> ::= ..."
+        ).unwrap();
+        let verbs = make_test_verbs();
+        let words = &["The", "cat", "is", "on", "the", "mat"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence", Wording::new(0, 6));
+        assert!(m.is_some(), "<sentence> should match 'The cat is on the mat'");
+        let internal = m.unwrap().internal.unwrap();
+        match &internal.payload {
+            InternalPayload::ParseNode(node) => {
+                assert_eq!(node.node_type(), crate::NodeType::Verb, "should be a VERB_NT");
+            }
+            _ => panic!("expected ParseNode payload, got {:?}", internal.payload),
+        }
+}
+
+
+    #[test]
+    fn test_sentence_non_copular() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let grammar = parse_preform_grammar(
+            "<sentence> internal\n<nonimperative-verb> internal\n<negated-noncopular-verb-present> internal\n<np-unparsed> ::= ..."
+        ).unwrap();
+        let verbs = make_test_verbs();
+        let words = &["Peter", "carry", "the", "flash", "cards"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence", Wording::new(0, 5));
+        assert!(m.is_some(), "<sentence> should match 'Peter carries the flash cards'");
+        let internal = m.unwrap().internal.unwrap();
+        match &internal.payload {
+            InternalPayload::ParseNode(node) => {
+                assert_eq!(node.node_type(), crate::NodeType::Verb, "should be a VERB_NT");
+            }
+            _ => panic!("expected ParseNode payload, got {:?}", internal.payload),
+        }
+    }
+
+    #[test]
+    fn test_sentence_imperative() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let grammar = parse_preform_grammar(
+            "<sentence> internal\n<nonimperative-verb> internal\n<negated-noncopular-verb-present> internal\n<np-unparsed> ::= ..."
+        ).unwrap();
+        let verbs = make_test_verbs();
+        let words = &["Carry", "the", "box"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence", Wording::new(0, 3));
+        assert!(m.is_some(), "<sentence> should match 'Carry the box'");
+        let internal = m.unwrap().internal.unwrap();
+        match &internal.payload {
+            InternalPayload::ParseNode(node) => {
+                assert_eq!(node.node_type(), crate::NodeType::Verb, "should be a VERB_NT");
+            }
+            _ => panic!("expected ParseNode payload, got {:?}", internal.payload),
+        }
+    }
+
+    #[test]
+    fn test_sentence_no_verb() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let grammar = parse_preform_grammar(
+            "<sentence> internal\n<nonimperative-verb> internal\n<negated-noncopular-verb-present> internal"
+        ).unwrap();
+        let verbs = make_test_verbs();
+        let words = &["The", "cat"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence", Wording::new(0, 2));
+        assert!(m.is_none(), "<sentence> should fail on 'The cat' (no verb)");
+    }
+
+    #[test]
+    fn test_sentence_without_occurrences() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let grammar = parse_preform_grammar(
+            "<sentence-without-occurrences> internal\n<nonimperative-verb> internal\n<negated-noncopular-verb-present> internal\n<np-unparsed> ::= ..."
+        ).unwrap();
+        let verbs = make_test_verbs();
+        let words = &["The", "cat", "is", "on", "the", "mat"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence-without-occurrences", Wording::new(0, 6));
+        assert!(m.is_some(), "<sentence-without-occurrences> should match 'The cat is on the mat'");
+        let internal = m.unwrap().internal.unwrap();
+        match &internal.payload {
+            InternalPayload::ParseNode(node) => {
+                assert_eq!(node.node_type(), crate::NodeType::Verb, "should be a VERB_NT");
+            }
+            _ => panic!("expected ParseNode payload, got {:?}", internal.payload),
+        }
+    }
+
+    #[test]
+    fn test_internal_payload_parse_node_round_trip() {
+        // Test that InternalPayload::ParseNode round-trips correctly.
+        let node = crate::parse_node::ParseNode::new(crate::NodeType::Verb, Wording::new(2, 3));
+        let payload = InternalPayload::ParseNode(Box::new(node));
+        match &payload {
+            InternalPayload::ParseNode(n) => {
+                assert_eq!(n.node_type(), crate::NodeType::Verb);
+                assert_eq!(n.wording().start, 2);
+                assert_eq!(n.wording().end, 3);
+            }
+            _ => panic!("expected ParseNode payload"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Real grammar oracle: sentence in Syntax.preform
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_real_syntax_preform_has_sentence() {
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../gitignore/inform/inform7/Internal/Languages/English/Syntax.preform"
+        );
+        let source = std::fs::read_to_string(path)
+            .expect("failed to read Syntax.preform");
+        let grammar = parse_preform_grammar(&source)
+            .expect("failed to parse Syntax.preform");
+
+        let names: Vec<&str> = grammar.nonterminals.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"sentence"), "missing sentence");
+        assert!(names.contains(&"sentence-without-occurrences"), "missing sentence-without-occurrences");
+    }
+
+    #[test]
+    fn test_real_syntax_preform_sentence_dispatch() {
+        // Integration test: the real Syntax.preform grammar's <sentence> internal
+        // declaration dispatches to our Rust implementation.
+        // Reference: services/linguistics-module/Chapter 4/Verb Phrases.w
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../gitignore/inform/inform7/Internal/Languages/English/Syntax.preform"
+        );
+        let source = std::fs::read_to_string(path)
+            .expect("failed to read Syntax.preform");
+        let grammar = parse_preform_grammar(&source)
+            .expect("failed to parse Syntax.preform");
+
+        let verbs = make_test_verbs();
+        let words = &["The", "cat", "is", "on", "the", "mat"];
+        let ctx = PreformContext {
+            grammar: &grammar,
+            word_text: words,
+            is_paragraph_start: false,
+            verbs_registry: Some(&verbs),
+        };
+        let registry = InternalRegistry::linguistics();
+        let m = match_nonterminal_impl(&ctx, &registry, "sentence", Wording::new(0, 6));
+        assert!(m.is_some(), "<sentence> should dispatch via real Syntax.preform grammar");
+        let internal = m.unwrap().internal.unwrap();
+        match &internal.payload {
+            InternalPayload::ParseNode(node) => {
+                assert_eq!(node.node_type(), crate::NodeType::Verb, "should be a VERB_NT");
+            }
+            _ => panic!("expected ParseNode payload, got {:?}", internal.payload),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -898,7 +1134,7 @@ impl ArticleInternal {
 }
 
 impl InternalNonterminal for ArticleInternal {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         // Must consume exactly one word.
         if wording.len() != 1 {
             return None;
@@ -961,6 +1197,8 @@ impl InternalRegistry {
         registry.register("pre-verb-rc-marker", Box::new(PreVerbRcMarker));
         registry.register("pre-verb-certainty", Box::new(PreVerbCertainty));
         registry.register("post-verb-certainty", Box::new(PostVerbCertainty));
+        registry.register("sentence", Box::new(SentenceInternal));
+        registry.register("sentence-without-occurrences", Box::new(SentenceWithoutOccurrencesInternal));
         registry
     }
 }
@@ -986,7 +1224,7 @@ impl InternalRegistry {
 pub struct CertaintyInternal;
 
 impl InternalNonterminal for CertaintyInternal {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         if wording.len() != 1 {
             return None;
         }
@@ -1026,7 +1264,7 @@ impl InternalNonterminal for CertaintyInternal {
 pub struct NonimperativeVerb;
 
 impl InternalNonterminal for NonimperativeVerb {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         let registry = ctx.verbs_registry?;
         if wording.is_empty() {
             return None;
@@ -1075,9 +1313,9 @@ impl InternalNonterminal for NonimperativeVerb {
 pub struct NegatedNoncopularVerbPresent;
 
 impl InternalNonterminal for NegatedNoncopularVerbPresent {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         let registry = ctx.verbs_registry?;
-        if wording.len() < 3 {
+        if wording.len() < 2 {
             return None;
         }
 
@@ -1153,7 +1391,7 @@ impl InternalNonterminal for NegatedNoncopularVerbPresent {
 pub struct PreVerbRcMarker;
 
 impl InternalNonterminal for PreVerbRcMarker {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         if wording.len() != 1 {
             return None;
         }
@@ -1183,7 +1421,7 @@ impl InternalNonterminal for PreVerbRcMarker {
 pub struct PreVerbCertainty;
 
 impl InternalNonterminal for PreVerbCertainty {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         // Delegate to certainty matching.
         if wording.len() != 1 {
             return None;
@@ -1218,7 +1456,7 @@ impl InternalNonterminal for PreVerbCertainty {
 pub struct PostVerbCertainty;
 
 impl InternalNonterminal for PostVerbCertainty {
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult> {
+    fn match_nonterminal(&self, ctx: &PreformContext, _registry: &InternalRegistry, wording: Wording) -> Option<InternalResult> {
         // Same as pre-verb certainty for now.
         if wording.len() != 1 {
             return None;
@@ -1235,6 +1473,67 @@ impl InternalNonterminal for PostVerbCertainty {
         };
         Some(InternalResult {
             payload: InternalPayload::Integer(level),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <sentence> internal
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal that parses a full sentence.
+///
+/// Calls `VerbPhrases::seek` to find the primary verb, identify subject
+/// and object phrases, and build a `VERB_NT` sentence diagram.
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+///   `<sentence> internal` (lines 40-46).
+#[derive(Clone, Debug)]
+pub struct SentenceInternal;
+
+impl InternalNonterminal for SentenceInternal {
+    fn match_nonterminal(
+        &self,
+        ctx: &PreformContext,
+        registry: &InternalRegistry,
+        wording: Wording,
+    ) -> Option<InternalResult> {
+        // Call VerbPhrases::seek with detect_occurrences = true.
+        // VerbPhrases::seek already calls corrective_surgery internally.
+        let node = crate::verb_phrases::VerbPhrases::seek(wording, ctx, registry, true)?;
+        Some(InternalResult {
+            payload: InternalPayload::ParseNode(Box::new(node)),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// <sentence-without-occurrences> internal
+// ---------------------------------------------------------------------------
+
+/// Internal nonterminal that parses a full sentence without detecting
+/// occurrences (adverbs like "for the third time").
+///
+/// # References
+///
+/// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+///   `<sentence-without-occurrences> internal` (lines 48-53).
+#[derive(Clone, Debug)]
+pub struct SentenceWithoutOccurrencesInternal;
+
+impl InternalNonterminal for SentenceWithoutOccurrencesInternal {
+    fn match_nonterminal(
+        &self,
+        ctx: &PreformContext,
+        registry: &InternalRegistry,
+        wording: Wording,
+    ) -> Option<InternalResult> {
+        // Call VerbPhrases::seek with detect_occurrences = false.
+        let node = crate::verb_phrases::VerbPhrases::seek(wording, ctx, registry, false)?;
+        Some(InternalResult {
+            payload: InternalPayload::ParseNode(Box::new(node)),
         })
     }
 }

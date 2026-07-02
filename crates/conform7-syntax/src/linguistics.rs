@@ -409,14 +409,14 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'the'");
         assert_eq!(
             result.unwrap().payload,
             crate::preform::InternalPayload::Article("definite".to_string())
         );
 
-        let result = definite.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = definite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "definite-article should match 'the'");
     }
 
@@ -430,10 +430,10 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'a'");
 
-        let result = indefinite.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = indefinite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "indefinite-article should match 'a'");
     }
 
@@ -447,10 +447,10 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'an'");
 
-        let result = indefinite.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = indefinite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "indefinite-article should match 'an'");
     }
 
@@ -464,10 +464,10 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        let result = article.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "article should match 'some'");
 
-        let result = indefinite.match_nonterminal(&ctx, Wording::new(0, 1));
+        let result = indefinite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1));
         assert!(result.is_some(), "indefinite-article should match 'some'");
     }
 
@@ -481,9 +481,9 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        assert!(article.match_nonterminal(&ctx, Wording::new(0, 1)).is_none());
-        assert!(definite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none());
-        assert!(indefinite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none());
+        assert!(article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1)).is_none());
+        assert!(definite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1)).is_none());
+        assert!(indefinite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1)).is_none());
     }
 
     #[test]
@@ -496,7 +496,7 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        assert!(definite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none(),
+        assert!(definite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1)).is_none(),
             "definite-article should fail on 'a'");
     }
 
@@ -510,7 +510,7 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        assert!(indefinite.match_nonterminal(&ctx, Wording::new(0, 1)).is_none(),
+        assert!(indefinite.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 1)).is_none(),
             "indefinite-article should fail on 'the'");
     }
 
@@ -524,7 +524,7 @@ mod tests {
         word_text: words,
         is_paragraph_start: false, verbs_registry: None };
 
-        assert!(article.match_nonterminal(&ctx, Wording::new(0, 2)).is_none(),
+        assert!(article.match_nonterminal(&ctx, &InternalRegistry::new(), Wording::new(0, 2)).is_none(),
             "article should fail on multi-word wording");
     }
 

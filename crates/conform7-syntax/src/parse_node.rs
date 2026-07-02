@@ -51,6 +51,27 @@ pub enum Annotation {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `linguistic_error_here_ANNOT` annotation.
     LinguisticErrorHere(i32),
+    /// Verb usage reference annotation.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `verb_usage_ANNOT` annotation.
+    VerbUsage(crate::verbs::VerbUsageRef),
+    /// Preposition reference annotation.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `preposition_ANNOT` annotation.
+    PrepositionRef(crate::verbs::PrepositionRef),
+    /// Second preposition reference annotation.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `second_preposition_ANNOT` annotation.
+    SecondPrepositionRef(crate::verbs::PrepositionRef),
 }
 
 /// A single node in an Inform 7 syntax tree.
@@ -175,7 +196,7 @@ impl ParseNode {
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn set_verb_usage(&mut self, vu: crate::verbs::VerbUsageRef) {
-        self.add_annotation(Annotation::VerbalCertainty(vu as i32));
+        self.add_annotation(Annotation::VerbUsage(vu));
     }
 
     /// Get the verb usage reference from this node, if any.
@@ -184,11 +205,10 @@ impl ParseNode {
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn get_verb_usage(&self) -> Option<crate::verbs::VerbUsageRef> {
-        // Verb usage is stored as a VerbalCertainty annotation with a positive value.
-        // In the C reference, this is a separate annotation field.
-        // For now, we use a simple heuristic: if VerbalCertainty is present and > 100,
-        // it's a verb usage reference rather than a certainty level.
-        self.verbal_certainty().filter(|&v| v > 100).map(|v| v as usize)
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::VerbUsage(vu) => Some(*vu),
+            _ => None,
+        }).next()
     }
 
     /// Set the preposition reference on this node.
@@ -198,7 +218,7 @@ impl ParseNode {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn set_preposition(&mut self, prep: Option<crate::verbs::PrepositionRef>) {
         if let Some(p) = prep {
-            self.add_annotation(Annotation::LinguisticErrorHere(p as i32));
+            self.add_annotation(Annotation::PrepositionRef(p));
         }
     }
 
@@ -208,17 +228,19 @@ impl ParseNode {
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn get_preposition(&self) -> Option<crate::verbs::PrepositionRef> {
-        self.linguistic_error().map(|v| v as usize)
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::PrepositionRef(prep) => Some(*prep),
+            _ => None,
+        }).next()
     }
-
     /// Set the second preposition reference on this node.
     ///
     /// # References
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn set_second_preposition(&mut self, prep: Option<crate::verbs::PrepositionRef>) {
-        if let Some(_p) = prep {
-            self.add_annotation(Annotation::SentenceIsExistential(true));
+        if let Some(p) = prep {
+            self.add_annotation(Annotation::SecondPrepositionRef(p));
         }
     }
 
@@ -228,8 +250,10 @@ impl ParseNode {
     ///
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w`
     pub fn get_second_preposition(&self) -> Option<crate::verbs::PrepositionRef> {
-        // Stub: second preposition is not yet stored separately.
-        None
+        self.annotations.iter().filter_map(|a| match a {
+            Annotation::SecondPrepositionRef(prep) => Some(*prep),
+            _ => None,
+        }).next()
     }
 
     /// Set the special meaning reference on this node.
@@ -562,4 +586,58 @@ mod tests {
         assert!(s.contains("ROOT_NT [0..0]"));
         assert!(s.contains("HEADING_NT [0..3]"));
     }
+
+    #[test]
+    fn test_verb_usage_annotation() {
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_verb_usage(42);
+        assert_eq!(node.get_verb_usage(), Some(42));
+    }
+
+    #[test]
+    fn test_verb_usage_annotation_none() {
+        let node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        assert_eq!(node.get_verb_usage(), None);
+    }
+
+    #[test]
+    fn test_preposition_annotation() {
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_preposition(Some(7));
+        assert_eq!(node.get_preposition(), Some(7));
+    }
+
+    #[test]
+    fn test_preposition_annotation_none() {
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_preposition(None);
+        assert_eq!(node.get_preposition(), None);
+    }
+
+    #[test]
+    fn test_second_preposition_annotation() {
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_second_preposition(Some(3));
+        assert_eq!(node.get_second_preposition(), Some(3));
+    }
+
+    #[test]
+    fn test_second_preposition_annotation_none() {
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_second_preposition(None);
+        assert_eq!(node.get_second_preposition(), None);
+    }
+
+    #[test]
+    fn test_annotation_independence() {
+        // Verify that different annotation types don't interfere with each other.
+        let mut node = ParseNode::new(NodeType::Verb, Wording::new(0, 1));
+        node.set_verb_usage(42);
+        node.set_preposition(Some(7));
+        node.set_second_preposition(Some(3));
+        assert_eq!(node.get_verb_usage(), Some(42));
+        assert_eq!(node.get_preposition(), Some(7));
+        assert_eq!(node.get_second_preposition(), Some(3));
+    }
 }
+

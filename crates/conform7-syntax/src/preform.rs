@@ -655,6 +655,13 @@ pub enum InternalPayload {
     Nonterminal(String),
     /// An article name (for article internal NTs).
     Article(String),
+    /// A parse node (e.g., from the `<sentence>` internal NT).
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
+    ///   `<sentence> internal` returns a `VERB_NT` parse node.
+    ParseNode(Box<crate::parse_node::ParseNode>),
 }
 
 /// Result of a successful internal nonterminal match.
@@ -696,8 +703,18 @@ pub struct PreformContext<'a> {
 pub trait InternalNonterminal: Send + Sync {
     /// Try to match this internal nonterminal against the given wording.
     ///
+    /// `registry` provides access to other internal nonterminals that this
+    /// implementation may need to delegate to (e.g., `<sentence>` internal
+    /// needs to call `VerbPhrases::seek` which uses the registry for
+    /// `<nonimperative-verb>` and `<negated-noncopular-verb-present>`).
+    ///
     /// Returns `Some(InternalResult)` on success, or `None` on failure.
-    fn match_nonterminal(&self, ctx: &PreformContext, wording: Wording) -> Option<InternalResult>;
+    fn match_nonterminal(
+        &self,
+        ctx: &PreformContext,
+        registry: &InternalRegistry,
+        wording: Wording,
+    ) -> Option<InternalResult>;
 }
 
 /// Registry mapping nonterminal names to their Rust implementations.
@@ -760,8 +777,7 @@ pub struct Match {
 }
 
 
-/// Match a nonterminal against a wording with full context and registry.
-///
+
 /// This is the main entry point for the Preform matching engine. It handles
 /// both regular nonterminals (defined by grammar productions) and internal
 /// nonterminals (implemented in Rust via the `InternalRegistry`).
@@ -778,7 +794,7 @@ pub fn match_nonterminal_impl(
     if nt.internal {
         // Look up the internal NT implementation in the registry.
         if let Some(impl_) = registry.get(name) {
-            let result = impl_.match_nonterminal(ctx, wording)?;
+            let result = impl_.match_nonterminal(ctx, registry, wording)?;
             let word_start = wording.start;
             let word_end = wording.end;
             return Some(Match {

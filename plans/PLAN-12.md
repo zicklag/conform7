@@ -1,6 +1,5 @@
 # Plan 12: VerbPhrases::seek — Viability Map and Verb-Finding Algorithm
-
-**Status**: In progress
+**Status**: Complete
 **Target**: 3-5 days
 
 ## Goal

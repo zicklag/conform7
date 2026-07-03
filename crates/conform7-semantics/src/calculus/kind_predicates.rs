@@ -4,21 +4,25 @@ use crate::calculus::atoms::{AtomElement, PcalcProp, PredicateRef};
 use crate::calculus::terms::PcalcTerm;
 use crate::calculus::unary_predicate_families::{UpFamily, UpFamilyMethods};
 use crate::calculus::unary_predicates::UnaryPredicate;
+use crate::calculus::kind_predicates_revisited::KindPredicatesRevisited;
 
 /// The family for kind=K unary predicates.
 ///
 /// Corresponds to `kind_up_family` in the C reference
 /// (`services/calculus-module/Chapter 2/Kind Predicates.w`, line 9).
 pub static KIND_UP_FAMILY: LazyLock<UpFamily> = LazyLock::new(|| {
-    UpFamily::new(
+    let mut family = UpFamily::new(
         "kind",
         UpFamilyMethods {
             log: kind_log,
             infer_kind: kind_infer_kind,
             testable: kind_testable,
             test: kind_test,
+            ..Default::default()
         },
-    )
+    );
+    KindPredicatesRevisited::wire(&mut family);
+    family
 });
 
 /// Log a kind predicate.

@@ -57,6 +57,7 @@ mod tests {
                     infer_kind: |_, up| up.assert_kind,
                     testable: |_, _| true,
                     test: |_, _| true,
+                    ..Default::default()
                 },
             )
         });

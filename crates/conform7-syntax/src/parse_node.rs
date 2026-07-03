@@ -138,6 +138,11 @@ impl ParseNode {
     pub fn add_annotation(&mut self, annotation: Annotation) {
         self.annotations.push(annotation);
     }
+
+    /// Return a reference to the annotations on this node.
+    pub fn annotations(&self) -> &[Annotation] {
+        &self.annotations
+    }
     /// Return the heading level annotation, if any.
     pub fn heading_level(&self) -> Option<HeadingLevel> {
         self.annotations.iter().filter_map(|a| match a {

@@ -1,3 +1,4 @@
+use crate::calculus::atoms::PcalcProp;
 use crate::calculus::unary_predicates::UnaryPredicate;
 
 /// Methods that can be implemented for a unary predicate family.
@@ -14,6 +15,39 @@ pub struct UpFamilyMethods {
     pub testable: fn(&UpFamily, &UnaryPredicate) -> bool,
     /// Test a predicate at compile-time (only called if testable returns true).
     pub test: fn(&UpFamily, &UnaryPredicate) -> bool,
+    /// Typecheck the terms of a unary predicate.
+    /// Corresponds to TYPECHECK_UPF_MTID.
+    /// Simplified: returns `1` (ALWAYS_MATCH).
+    #[allow(clippy::type_complexity)]
+    pub typecheck: Option<
+        fn(&UpFamily, &UnaryPredicate, &[Option<usize>], &[Option<usize>]) -> i8,
+    >,
+    /// Assert a unary predicate as a true fact about the model world.
+    /// Corresponds to ASSERT_UPF_MTID.
+    /// Simplified: returns `false`.
+    #[allow(clippy::type_complexity)]
+    pub assert: Option<
+        fn(&UpFamily, &UnaryPredicate, bool, &PcalcProp) -> bool,
+    >,
+    /// Compile run-time code for a task (test, make-true, make-false).
+    /// Corresponds to SCHEMA_UPF_MTID.
+    pub schema: Option<
+        fn(&UpFamily, u8, &UnaryPredicate) -> bool,
+    >,
+}
+
+impl Default for UpFamilyMethods {
+    fn default() -> Self {
+        UpFamilyMethods {
+            log: |_, _| String::new(),
+            infer_kind: |_, _| None,
+            testable: |_, _| false,
+            test: |_, _| false,
+            typecheck: None,
+            assert: None,
+            schema: None,
+        }
+    }
 }
 
 /// A family of related unary predicates.
@@ -52,6 +86,7 @@ mod tests {
                     infer_kind: |_, up| up.assert_kind,
                     testable: |_, up| up.assert_kind.is_some(),
                     test: |_, up| up.assert_kind == Some("number"),
+                    ..Default::default()
                 },
             )
         });

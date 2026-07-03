@@ -1,4 +1,6 @@
 use crate::calculus::binary_predicates::BinaryPredicate;
+use crate::knowledge::inferences::{Inference, InferenceFamily};
+use crate::knowledge::property_inferences::PropertyInferenceData;
 
 /// Return value from typecheck when the family does not handle the given kinds.
 ///
@@ -17,7 +19,7 @@ pub const DECLINE_TO_MATCH: i8 = -1;
 pub struct BpFamilyMethods {
     /// Stock up on relations (stage 1: built-in essentials; stage 2: one per value property).
     /// Corresponds to STOCK_BPF_MTID.
-    pub stock: Option<fn(&BpFamily, u8)>,
+    pub stock: Option<fn(&BpFamily, u8, &mut Vec<BinaryPredicate>, &[()])>,
     /// Typecheck the terms of a relation.
     /// Corresponds to TYPECHECK_BPF_MTID.
     #[allow(clippy::type_complexity)]
@@ -34,6 +36,12 @@ pub struct BpFamilyMethods {
             Option<&'static str>,
             usize,
             Option<&'static str>,
+            &mut [crate::knowledge::inference_subjects::InferenceSubject],
+            &mut Vec<crate::knowledge::property_permissions::PropertyPermission>,
+            &[InferenceFamily],
+            &mut Vec<Inference>,
+            &mut Vec<PropertyInferenceData>,
+            &[()],
         ) -> bool,
     >,
     /// Compile run-time code for a task (test, make-true, make-false).
@@ -101,10 +109,10 @@ impl BinaryPredicateFamilies {
     ///
     /// Corresponds to `BinaryPredicateFamilies::first_stock` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicate Families.w`, lines 100-110).
-    pub fn first_stock(families: &mut [BpFamily]) {
+    pub fn first_stock(families: &mut [BpFamily], bp_registry: &mut Vec<BinaryPredicate>) {
         for family in families.iter_mut() {
             if let Some(stock) = family.methods.stock {
-                stock(family, 1);
+                stock(family, 1, bp_registry, &[]);
             }
         }
     }
@@ -113,10 +121,10 @@ impl BinaryPredicateFamilies {
     ///
     /// Corresponds to `BinaryPredicateFamilies::second_stock` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicate Families.w`, lines 112-122).
-    pub fn second_stock(families: &mut [BpFamily]) {
+    pub fn second_stock(families: &mut [BpFamily], bp_registry: &mut Vec<BinaryPredicate>, property_registry: &[()]) {
         for family in families.iter_mut() {
             if let Some(stock) = family.methods.stock {
-                stock(family, 2);
+                stock(family, 2, bp_registry, property_registry);
             }
         }
     }
@@ -144,9 +152,7 @@ impl BinaryPredicateFamilies {
     /// Dispatch to the family's assert method.
     ///
     /// Returns `false` if the family has no assert method.
-    ///
-    /// Corresponds to `BinaryPredicateFamilies::assert` in the C reference
-    /// (`services/calculus-module/Chapter 3/Binary Predicate Families.w`, lines 136-146).
+    #[allow(clippy::too_many_arguments)]
     pub fn assert(
         bp: &BinaryPredicate,
         subj0: usize,
@@ -154,6 +160,12 @@ impl BinaryPredicateFamilies {
         subj1: usize,
         spec1: Option<&'static str>,
         families: &[BpFamily],
+        subjects: &mut [crate::knowledge::inference_subjects::InferenceSubject],
+        permissions: &mut Vec<crate::knowledge::property_permissions::PropertyPermission>,
+        inference_families: &[InferenceFamily],
+        inferences: &mut Vec<Inference>,
+        data_registry: &mut Vec<PropertyInferenceData>,
+        property_registry: &[()],
     ) -> bool {
         if bp.relation_family < families.len() {
             if let Some(assert) = families[bp.relation_family].methods.assert {
@@ -164,6 +176,12 @@ impl BinaryPredicateFamilies {
                     spec0,
                     subj1,
                     spec1,
+                    subjects,
+                    permissions,
+                    inference_families,
+                    inferences,
+                    data_registry,
+                    property_registry,
                 );
             }
         }
@@ -201,7 +219,7 @@ impl BinaryPredicateFamilies {
                 return describe(&families[bp.relation_family], bp);
             }
         }
-        bp.relation_name.unwrap_or("(unnamed relation)").to_string()
+        bp.relation_name.as_deref().unwrap_or("(unnamed relation)").to_string()
     }
 
     /// Dispatch to the family's describe_for_index method.
@@ -216,7 +234,7 @@ impl BinaryPredicateFamilies {
                 return describe(&families[bp.relation_family], bp);
             }
         }
-        bp.relation_name.unwrap_or("(unnamed relation)").to_string()
+        bp.relation_name.as_deref().unwrap_or("(unnamed relation)").to_string()
     }
 }
 
@@ -243,12 +261,13 @@ mod tests {
             },
         )
     }
-
     fn make_assert_family() -> BpFamily {
         BpFamily::new_with_methods(
             "assert_family",
             BpFamilyMethods {
-                assert: Some(|_, _, subj0, _, subj1, _| subj0 == 42 && subj1 == 99),
+                assert: Some(|_, _, subj0, _, subj1, _, _subjects, _permissions, _inf_families, _infs, _data_reg, _prop_reg| {
+                    subj0 == 42 && subj1 == 99
+                }),
                 ..Default::default()
             },
         )
@@ -259,10 +278,10 @@ mod tests {
             "describe_family",
             BpFamilyMethods {
                 describe_for_problems: Some(|_, bp| {
-                    format!("problem: {}", bp.relation_name.unwrap_or("?"))
+                    format!("problem: {}", bp.relation_name.as_deref().unwrap_or("?"))
                 }),
                 describe_for_index: Some(|_, bp| {
-                    format!("index: {}", bp.relation_name.unwrap_or("?"))
+                    format!("index: {}", bp.relation_name.as_deref().unwrap_or("?"))
                 }),
                 ..Default::default()
             },
@@ -330,7 +349,7 @@ mod tests {
             BpFamily::new_with_methods(
                 "stocked",
                 BpFamilyMethods {
-                    stock: Some(|_, stage| {
+                    stock: Some(|_, stage, _, _| {
                         CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
                         STAGE.store(stage, std::sync::atomic::Ordering::SeqCst);
                     }),
@@ -339,7 +358,8 @@ mod tests {
             ),
         ];
 
-        BinaryPredicateFamilies::first_stock(&mut families);
+        let mut bp_registry = Vec::new();
+        BinaryPredicateFamilies::first_stock(&mut families, &mut bp_registry);
 
         assert!(CALLED.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(STAGE.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -355,7 +375,7 @@ mod tests {
             BpFamily::new_with_methods(
                 "stocked",
                 BpFamilyMethods {
-                    stock: Some(|_, stage| {
+                    stock: Some(|_, stage, _, _| {
                         CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
                         STAGE.store(stage, std::sync::atomic::Ordering::SeqCst);
                     }),
@@ -363,8 +383,8 @@ mod tests {
                 },
             ),
         ];
-
-        BinaryPredicateFamilies::second_stock(&mut families);
+        let mut bp_registry = Vec::new();
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &[]);
 
         assert!(CALLED.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(STAGE.load(std::sync::atomic::Ordering::SeqCst), 2);
@@ -426,7 +446,6 @@ mod tests {
         );
         assert_eq!(result, DECLINE_TO_MATCH);
     }
-
     #[test]
     fn test_assert_dispatches_to_family_method() {
         let families = vec![make_assert_family()];
@@ -434,22 +453,21 @@ mod tests {
 
         // Matching subjects
         assert!(BinaryPredicateFamilies::assert(
-            &bp, 42, None, 99, None, &families
+            &bp, 42, None, 99, None, &families, &mut [], &mut vec![], &[], &mut vec![], &mut vec![], &[]
         ));
 
         // Non-matching subjects
         assert!(!BinaryPredicateFamilies::assert(
-            &bp, 1, None, 2, None, &families
+            &bp, 1, None, 2, None, &families, &mut [], &mut vec![], &[], &mut vec![], &mut vec![], &[]
         ));
     }
-
     #[test]
     fn test_assert_returns_false_for_family_without_assert() {
         let families = vec![BpFamily::new("no_assert")];
         let bp = make_test_bp(0);
 
         assert!(!BinaryPredicateFamilies::assert(
-            &bp, 42, None, 99, None, &families
+            &bp, 42, None, 99, None, &families, &mut [], &mut vec![], &[], &mut vec![], &mut vec![], &[]
         ));
     }
 

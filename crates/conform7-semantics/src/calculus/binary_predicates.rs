@@ -16,11 +16,11 @@ pub struct BinaryPredicate {
     /// The family this BP belongs to (index into a family registry).
     pub relation_family: usize,
     /// Family-specific data (simplified: a string tag for now).
-    pub family_specific: Option<&'static str>,
+    pub family_specific: Option<String>,
     /// The relation name (simplified: a string instead of `word_assemblage`).
-    pub relation_name: Option<&'static str>,
+    pub relation_name: Option<String>,
     /// Debugging log name.
-    pub debugging_log_name: Option<&'static str>,
+    pub debugging_log_name: Option<String>,
     /// Term details for the left (0) and right (1) terms.
     pub term_details: [BpTermDetails; 2],
     /// The reversal BP (index into a BP registry).
@@ -29,11 +29,11 @@ pub struct BinaryPredicate {
     pub right_way_round: bool,
     /// Task functions for compiling code (simplified: string schemas).
     /// Indices: 0=unused, 1=TEST_ATOM_TASK, 2=NOW_ATOM_TRUE_TASK, 3=NOW_ATOM_FALSE_TASK.
-    pub task_functions: [Option<&'static str>; 4],
+    pub task_functions: [Option<String>; 4],
     /// Loop parent optimisation proviso (simplified: a string).
-    pub loop_parent_optimisation_proviso: Option<&'static str>,
+    pub loop_parent_optimisation_proviso: Option<String>,
     /// Loop parent optimisation ranger (simplified: a string).
-    pub loop_parent_optimisation_ranger: Option<&'static str>,
+    pub loop_parent_optimisation_ranger: Option<String>,
     /// Knowledge about this BP (inference subject index).
     /// This is the bridge between the calculus module and the knowledge module.
     pub knowledge_about_bp: Option<usize>,
@@ -65,15 +65,15 @@ impl BinaryPredicates {
     /// The index of the created BP in the registry.
     pub fn make_equality(
         family_idx: usize,
-        relation_name: &'static str,
+        relation_name: &str,
         bp_registry: &mut Vec<BinaryPredicate>,
     ) -> usize {
         let idx = bp_registry.len();
         let bp = BinaryPredicate {
             relation_family: family_idx,
             family_specific: None,
-            relation_name: Some(relation_name),
-            debugging_log_name: Some(relation_name),
+            relation_name: Some(relation_name.to_string()),
+            debugging_log_name: Some(relation_name.to_string()),
             term_details: [
                 BpTermDetails {
                     implies_infs: None,
@@ -125,22 +125,22 @@ impl BinaryPredicates {
         family_idx: usize,
         left_term: BpTermDetails,
         right_term: BpTermDetails,
-        name: &'static str,
-        test_fn: Option<&'static str>,
-        make_true_fn: Option<&'static str>,
-        relation_name: Option<&'static str>,
+        name: &str,
+        test_fn: Option<&str>,
+        make_true_fn: Option<&str>,
+        relation_name: Option<&str>,
         bp_registry: &mut Vec<BinaryPredicate>,
     ) -> usize {
         let idx = bp_registry.len();
         let bp = BinaryPredicate {
             relation_family: family_idx,
             family_specific: None,
-            relation_name,
-            debugging_log_name: Some(name),
+            relation_name: relation_name.map(|s| s.to_string()),
+            debugging_log_name: Some(name.to_string()),
             term_details: [left_term, right_term],
             reversal: None,
             right_way_round: true,
-            task_functions: [None, test_fn, make_true_fn, None],
+            task_functions: [None, test_fn.map(|s| s.to_string()), make_true_fn.map(|s| s.to_string()), None],
             loop_parent_optimisation_proviso: None,
             loop_parent_optimisation_ranger: None,
             knowledge_about_bp: None,
@@ -177,11 +177,11 @@ impl BinaryPredicates {
         family_idx: usize,
         left_term: BpTermDetails,
         right_term: BpTermDetails,
-        name: &'static str,
-        namer: &'static str,
-        make_true_fn: Option<&'static str>,
-        test_fn: Option<&'static str>,
-        source_name: Option<&'static str>,
+        name: &str,
+        namer: &str,
+        make_true_fn: Option<&str>,
+        test_fn: Option<&str>,
+        source_name: Option<&str>,
         bp_registry: &mut Vec<BinaryPredicate>,
     ) -> usize {
         // Create the original (right-way-round) BP
@@ -201,12 +201,12 @@ impl BinaryPredicates {
         let reversal = BinaryPredicate {
             relation_family: family_idx,
             family_specific: None,
-            relation_name: source_name,
-            debugging_log_name: Some(namer),
+            relation_name: source_name.map(|s| s.to_string()),
+            debugging_log_name: Some(namer.to_string()),
             term_details: [right_term, left_term], // swapped
             reversal: Some(original_idx),
             right_way_round: false,
-            task_functions: [None, test_fn, make_true_fn, None],
+            task_functions: [None, test_fn.map(|s| s.to_string()), make_true_fn.map(|s| s.to_string()), None],
             loop_parent_optimisation_proviso: None,
             loop_parent_optimisation_ranger: None,
             knowledge_about_bp: None,
@@ -244,8 +244,8 @@ impl BinaryPredicate {
     ///
     /// Corresponds to `BinaryPredicates::get_test_function` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicates.w`, lines 256-266).
-    pub fn get_test_function(&self) -> Option<&'static str> {
-        self.task_functions[1] // TEST_ATOM_TASK is at index 1
+    pub fn get_test_function(&self) -> Option<&str> {
+        self.task_functions[1].as_deref() // TEST_ATOM_TASK is at index 1
     }
 
     /// Test if the BP or its reversal can be made true at run-time.
@@ -303,18 +303,18 @@ impl BinaryPredicate {
     /// (`services/calculus-module/Chapter 3/Binary Predicates.w`, lines 314-330).
     pub fn set_index_details(
         &mut self,
-        left: Option<&'static str>,
-        right: Option<&'static str>,
+        left: Option<&str>,
+        right: Option<&str>,
         bp_registry: &mut [BinaryPredicate],
     ) {
-        self.term_details[0].index_term_as = left;
-        self.term_details[1].index_term_as = right;
+        self.term_details[0].index_term_as = left.map(|s| s.to_string());
+        self.term_details[1].index_term_as = right.map(|s| s.to_string());
 
         // Also update the reversal's terms (swapped)
         if let Some(rev_idx) = self.reversal {
             if rev_idx < bp_registry.len() {
-                bp_registry[rev_idx].term_details[0].index_term_as = right;
-                bp_registry[rev_idx].term_details[1].index_term_as = left;
+                bp_registry[rev_idx].term_details[0].index_term_as = right.map(|s| s.to_string());
+                bp_registry[rev_idx].term_details[1].index_term_as = left.map(|s| s.to_string());
             }
         }
     }
@@ -323,8 +323,8 @@ impl BinaryPredicate {
     ///
     /// Corresponds to `BinaryPredicates::get_log_name` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicates.w`).
-    pub fn get_log_name(&self) -> Option<&'static str> {
-        self.debugging_log_name
+    pub fn get_log_name(&self) -> Option<&str> {
+        self.debugging_log_name.as_deref()
     }
 }
 
@@ -340,8 +340,8 @@ mod tests {
 
         assert_eq!(idx, 0);
         assert_eq!(registry[idx].relation_family, 0);
-        assert_eq!(registry[idx].relation_name, Some("equality"));
-        assert_eq!(registry[idx].debugging_log_name, Some("equality"));
+        assert_eq!(registry[idx].relation_name, Some("equality".to_string()));
+        assert_eq!(registry[idx].debugging_log_name, Some("equality".to_string()));
     }
 
     #[test]
@@ -379,12 +379,12 @@ mod tests {
 
         assert_eq!(idx, 0);
         assert_eq!(registry[idx].relation_family, 2);
-        assert_eq!(registry[idx].debugging_log_name, Some("my_relation"));
-        assert_eq!(registry[idx].relation_name, Some("my_relation_name"));
+        assert_eq!(registry[idx].debugging_log_name, Some("my_relation".to_string()));
+        assert_eq!(registry[idx].relation_name, Some("my_relation_name".to_string()));
         assert_eq!(registry[idx].term_details[0].implies_kind, Some(0));
         assert_eq!(registry[idx].term_details[1].implies_kind, Some(1));
-        assert_eq!(registry[idx].task_functions[1], Some("TEST_FN"));
-        assert_eq!(registry[idx].task_functions[2], Some("MAKE_TRUE_FN"));
+        assert_eq!(registry[idx].task_functions[1], Some("TEST_FN".to_string()));
+        assert_eq!(registry[idx].task_functions[2], Some("MAKE_TRUE_FN".to_string()));
         assert!(registry[idx].right_way_round);
         assert_eq!(registry[idx].reversal, None);
     }
@@ -631,8 +631,8 @@ mod tests {
 
         let mut bp = registry.swap_remove(0);
         bp.set_index_details(Some("left_name"), Some("right_name"), &mut []);
-        assert_eq!(bp.term_details[0].index_term_as, Some("left_name"));
-        assert_eq!(bp.term_details[1].index_term_as, Some("right_name"));
+        assert_eq!(bp.term_details[0].index_term_as, Some("left_name".to_string()));
+        assert_eq!(bp.term_details[1].index_term_as, Some("right_name".to_string()));
 
         // Test 2: set_index_details on a pair updates the reversal
         // We test this by directly setting fields on the original and verifying
@@ -665,11 +665,11 @@ mod tests {
         );
 
         // Verify the original's term details
-        assert_eq!(original.term_details[0].index_term_as, Some("container"));
-        assert_eq!(original.term_details[1].index_term_as, Some("contents"));
+        assert_eq!(original.term_details[0].index_term_as, Some("container".to_string()));
+        assert_eq!(original.term_details[1].index_term_as, Some("contents".to_string()));
         // Verify the reversal's term details (swapped)
-        assert_eq!(reversal.term_details[0].index_term_as, Some("contents"));
-        assert_eq!(reversal.term_details[1].index_term_as, Some("container"));
+        assert_eq!(reversal.term_details[0].index_term_as, Some("contents".to_string()));
+        assert_eq!(reversal.term_details[1].index_term_as, Some("container".to_string()));
     }
 
     #[test]

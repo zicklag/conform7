@@ -32,3 +32,4 @@ pub mod lattice;
 pub mod kinds_behaviour;
 pub mod calculus;
 pub mod knowledge;
+pub mod assertions;

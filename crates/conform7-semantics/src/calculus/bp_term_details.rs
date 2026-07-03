@@ -15,13 +15,12 @@ pub struct BpTermDetails {
     /// Simplified: uses a kind index instead of `kind*` pointer.
     pub implies_kind: Option<usize>,
     /// The "(called...)" name, if any exists.
-    /// Simplified: a string instead of `wording`.
-    pub called_name: Option<&'static str>,
+    pub called_name: Option<String>,
     /// Where one term can be deduced from the other.
     /// Simplified: a string schema instead of `i6_schema*`.
-    pub function_of_other: Option<&'static str>,
+    pub function_of_other: Option<String>,
     /// Text to use in the Phrasebook index (usually null).
-    pub index_term_as: Option<&'static str>,
+    pub index_term_as: Option<String>,
 }
 
 /// Functions for creating and manipulating binary predicate term details.
@@ -67,14 +66,14 @@ impl BPTerms {
     pub fn new_full(
         infs: Option<usize>,
         kind: Option<usize>,
-        called_name: Option<&'static str>,
-        function_of_other: Option<&'static str>,
+        called_name: Option<&str>,
+        function_of_other: Option<&str>,
     ) -> BpTermDetails {
         BpTermDetails {
             implies_infs: infs,
             implies_kind: kind,
-            called_name,
-            function_of_other,
+            called_name: called_name.map(|s| s.to_string()),
+            function_of_other: function_of_other.map(|s| s.to_string()),
             index_term_as: None,
         }
     }
@@ -96,8 +95,8 @@ impl BPTerms {
     ///
     /// Corresponds to `BPTerms::set_function` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicate Term Details.w`, lines 84-96).
-    pub fn set_function(bptd: &mut BpTermDetails, f: Option<&'static str>) {
-        bptd.function_of_other = f;
+    pub fn set_function(bptd: &mut BpTermDetails, f: Option<&str>) {
+        bptd.function_of_other = f.map(|s| s.to_string());
     }
 
     /// Return the kind of a term.
@@ -155,8 +154,8 @@ mod tests {
         );
         assert_eq!(td.implies_infs, Some(1));
         assert_eq!(td.implies_kind, Some(2));
-        assert_eq!(td.called_name, Some("called foo"));
-        assert_eq!(td.function_of_other, Some("function_of_other_schema"));
+        assert_eq!(td.called_name, Some("called foo".to_string()));
+        assert_eq!(td.function_of_other, Some("function_of_other_schema".to_string()));
         assert_eq!(td.index_term_as, None);
     }
 
@@ -193,7 +192,7 @@ mod tests {
         assert_eq!(td.function_of_other, None);
 
         BPTerms::set_function(&mut td, Some("my_function"));
-        assert_eq!(td.function_of_other, Some("my_function"));
+        assert_eq!(td.function_of_other, Some("my_function".to_string()));
     }
 
     #[test]

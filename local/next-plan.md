@@ -1,96 +1,56 @@
-# Handoff: PLAN-41 — Imperative Definition Families Foundation
+# Handoff: PLAN-45 — Adjectives by Inter Condition Foundation
 
-## Status
+## Summary
 
-PLAN-41 was reviewed and developed into a detailed, independently testable plan.
+`plans/PLAN-45.md` has been updated with a detailed, implementation-ready plan for the Adjectives by Inter Condition foundation. The work creates a new assertions-module family, `adjectives_by_inter_condition`, that mirrors `AdjectivesByInterCondition` in the C reference (`inform7/assertions-module/Chapter 8/Adjectives by Inter Condition.w`).
 
-- **Plan number and name:** Plan 41: Imperative Definition Families — Foundation
-- **Why this is the next step:** `ImperativeDefinitionFamilies::create()` is the immediate successor to `KindPredicatesRevisited::start()` in the assertions-module startup sequence (`inform7/assertions-module/Chapter 1/Assertions Module.w`, line 33).
-- **Key revision:** The original draft only listed out-of-scope items. The revised plan adds the concrete data structure, registry, method dispatch infrastructure, integration points, and testable success criteria.
+## What to build
 
-## Key files to create / modify
+1. **New module:** `crates/conform7-semantics/src/assertions/adjectives_by_inter_condition.rs`
+   - Static `INTER_CONDITION_FAMILY` index.
+   - `AdjectivesByInterCondition::start(&mut Vec<AdjectiveMeaningFamily>) -> usize` at priority **4**.
+   - `is_by_inter_condition(...)` predicate.
+   - `claim_definition(...)` that:
+     - parses the condition text with a small stand-in for `<inform6-condition-adjective-definition>`,
+     - accepts only `sense == 1`,
+     - declines if calling text is non-empty,
+     - creates an `AdjectiveMeaning` + `Adjective`, links them, sets the domain,
+     - marks only `TEST_ATOM_TASK` as via-support-function (Inter-condition adjectives are test-only; no NOW tasks).
+   - A `ClaimDefinitionFn`-shaped wrapper for the existing family-methods slot.
+   - Unit tests covering declines, accepts, and `is_by_inter_condition`.
 
-### Create
+2. **Wire into assertions module:** `crates/conform7-semantics/src/assertions/mod.rs`
+   - Add `pub mod adjectives_by_inter_condition;`.
+   - Add module-map row and C reference.
+   - Update startup-sequence comment to show `AdjectivesByInterCondition::start()` after `AdjectivesByInterFunction::start()`.
 
-- `crates/conform7-semantics/src/assertions/mod.rs`
-  - Module-level docs, module map, references list.
-  - Re-export `pub mod imperative_definition_families;`.
-- `crates/conform7-semantics/src/assertions/imperative_definition_families.rs`
-  - `ImpDefFamilyMethods` struct with optional method slots.
-  - `ImpDefFamily` struct.
-  - `ImperativeDefinitionFamilies` manager with `new_family`, `create`, `start`, dispatch helpers, and built-in accessors.
-  - Unit tests.
+## Key design decisions
 
-### Modify
+- **Priority 4** (lower than inter-routine/condition/phrase), matching C.
+- **Only `claim_definition` is installed**; the C family has no `GENERATE_IN_SUPPORT_FUNCTION` method. Schema side effects happen inline.
+- **No `prepare_schemas` placeholder** — keep `prepare_schemas: None` to mirror C.
+- **No `Definition` struct yet** — `family_specific_data` stays `None`.
+- **No real Preform/Salsa parser** — a minimal Rust string parser recognizes the single `i6/inter condition "..." says so` template. Full grammar integration is out of scope.
+- **Task-mode marking reproduces `RTAdjectives::set_schemas_for_raw_Inter_condition`** without generating I6 schemas. Because Inter conditions are test-only, only `TEST_ATOM_TASK` is marked; `NOW_ATOM_TRUE_TASK` and `NOW_ATOM_FALSE_TASK` remain `NO_TASKMODE`.
+- **Indexing text** is set to the quoted condition text (capture 1 in the C reference). The raw word number used for schema generation is deferred.
 
-- `crates/conform7-semantics/src/lib.rs`
-  - Add `pub mod assertions;` after `pub mod knowledge;`.
-  - Update crate-level module map comment.
+## Success criteria at a glance
 
-## Key types and functions to implement
+- Module compiles, 7 new unit tests pass.
+- `cargo test` keeps all 1394 existing tests passing.
+- `cargo clippy --all-targets` remains clean.
 
-### `ImpDefFamilyMethods`
+## Next steps
 
-Optional method slots, all defaulting to `None`, mirroring the C method IDs in `Imperative Definition Families.w`:
+1. Implement `adjectives_by_inter_condition.rs` exactly per the code snippets in `plans/PLAN-45.md`.
+2. Update `assertions/mod.rs` as shown in the plan.
+3. Run `cargo test -- assertions::adjectives_by_inter_condition` and then `cargo test` / `cargo clippy --all-targets`.
 
-- `identify: Option<fn(&ImpDefFamily) -> ()>`
-- `assess: Option<fn(&ImpDefFamily) -> ()>`
-- `given_body: Option<fn(&ImpDefFamily) -> ()>`
-- `register: Option<fn(&ImpDefFamily) -> ()>`
-- `to_rcd: Option<fn(&ImpDefFamily) -> ()>`
-- `assessment_complete: Option<fn(&ImpDefFamily) -> ()>`
-- `allows_rule_only_phrases: Option<fn(&ImpDefFamily) -> bool>`
-- `allows_empty: Option<fn(&ImpDefFamily) -> bool>`
-- `allows_inline: Option<fn(&ImpDefFamily) -> bool>`
-- `compile: Option<fn(&ImpDefFamily, &mut i32, i32) -> ()>`
-- `phrasebook_index: Option<fn(&ImpDefFamily) -> bool>`
+## References
 
-### `ImpDefFamily`
-
-```rust
-pub struct ImpDefFamily {
-    pub name: &'static str,
-    pub methods: ImpDefFamilyMethods,
-    pub compile_last: bool,
-}
-```
-
-- `ImpDefFamily::new(name: &'static str, compile_last: bool) -> Self`
-
-### `ImperativeDefinitionFamilies`
-
-- `ImperativeDefinitionFamilies::new_family(name, compile_last) -> ImpDefFamily` — thin wrapper over `ImpDefFamily::new`.
-- `ImperativeDefinitionFamilies::create()` — forces the built-in registry.
-- `ImperativeDefinitionFamilies::start()` — assertions-module hook, equivalent to `create()`.
-- Built-in family accessors: `unknown_idf()`, `adjectival_idf()`, `to_phrase_idf()`, `rule_idf()`.
-- Dispatch helpers: `identify`, `assess`, `given_body`, `register`, `to_rcd`, `assessment_complete`, `allows_rule_only_phrases`, `allows_empty`, `allows_inline`, `compile`, `phrasebook_index`.
-
-## Test strategy
-
-- **Family creation tests** verify `new` and `new_family` produce the correct name and `compile_last` flag.
-- **Default method tests** verify every slot in a fresh `ImpDefFamilyMethods` is `None`.
-- **Registry tests** call `create()` and assert the registry contains four families in the exact C order with the correct flags:
-  1. `unknown-idf` — `false`
-  2. `adjectival-idf` — `false`
-  3. `TO_PHRASE_EFF` — `true`
-  4. `rule-idf` — `false`
-- **Accessor tests** verify `unknown_idf()`, `adjectival_idf()`, `to_phrase_idf()`, and `rule_idf()` return the matching family.
-- **Dispatch helper tests** install a method (e.g., set `allows_empty` to a closure that mutates a captured flag), call the helper, and verify the closure ran. Also verify helpers return `false` / no-op when no method is installed.
-- **Startup hook test** verifies `start()` runs without panic and forces the registry.
-- After implementation run:
-  - `cargo build`
-  - `cargo test -- assertions::imperative_definition_families`
-  - `cargo clippy --all-targets`
-
-## Simplifications from the C reference
-
-The full C implementation relies on several systems that do not exist yet. The foundation deliberately simplifies:
-
-- **No concrete families:** `AdjectivalDefinitionFamily::create_family`, `ToPhraseFamily::create_family`, and `RuleFamily::create_family` are deferred. The registry contains placeholder families with default (`None`) methods.
-- **No `imperative_defn` / `id_body` types:** Method slots take `&ImpDefFamily` only. They will be expanded to include the definition and body references when those types are added.
-- **No runtime context data:** `id_runtime_context_data` is not implemented; `to_rcd` is a no-op stub.
-- **No Preform grammar:** Preamble identification and parsing are deferred.
-- **No problem messages:** `StandardProblems` calls are omitted.
-- **No Inter compilation:** `compile` is a no-op stub; no actual phrase/rule compilation happens.
-- **No Salsa integration:** The registry uses a simple `LazyLock<Vec<ImpDefFamily>>`, not a Salsa query.
-- **Ordered registry:** Instead of Inform's `CLASS_DEFINITION` linked list, the four built-in families are stored in a `Vec` in the exact creation order required by `identify` (rule family last).
+- `plans/PLAN-45.md` (updated)
+- `plans/PLAN-44.md` (inter-function pattern reference)
+- `gitignore/inform/inform7/assertions-module/Chapter 8/Adjectives by Inter Condition.w`
+- `gitignore/inform/inform7/runtime-module/Chapter 5/Adjectives.w` (lines 431-434)
+- `crates/conform7-semantics/src/assertions/adjectives_by_inter_function.rs`
+- `crates/conform7-semantics/src/knowledge/adjectives.rs`

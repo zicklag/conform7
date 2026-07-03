@@ -16,8 +16,11 @@
 - EqualityDetails module (typecheck, assert, schema for equality and empty families)
 - KindPredicatesRevisited module (typecheck, assert, schema for kind predicate family)
 - ImperativeDefinitionFamilies foundation (ImpDefFamily, method dispatch, built-in registry)
+- AdjectivesByPhrase foundation (phrase family, claim_definition, task-mode infrastructure)
+- AdjectivesByCondition foundation (condition family, claim_definition, prepare_schemas)
+- AdjectivesByInterFunction foundation (inter_routine family, claim_definition, template parser)
 
-- 1374 tests
+- 1394 tests
 - `cargo clippy --all-targets` is clean (no new warnings)
 
 ## What's Next

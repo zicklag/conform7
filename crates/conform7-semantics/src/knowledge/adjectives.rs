@@ -23,6 +23,22 @@ use crate::knowledge::property_inferences::PropertyInferenceData;
 use crate::knowledge::properties::Property;
 use crate::knowledge::measurements::MeasurementDefinition;
 
+/// Task indices for adjective meaning atom tasks.
+///
+/// Corresponds to the `TEST_ATOM_TASK` etc. constants in the C reference
+/// (`inform7/assertions-module/Chapter 8/Adjective Meanings.w`, lines 160-163).
+pub const TEST_ATOM_TASK: usize = 0;
+pub const NOW_ATOM_TRUE_TASK: usize = 1;
+pub const NOW_ATOM_FALSE_TASK: usize = 2;
+
+/// Task mode values for adjective meaning atom tasks.
+///
+/// Corresponds to the `NO_TASKMODE` etc. constants in the C reference
+/// (`inform7/assertions-module/Chapter 8/Adjective Meanings.w`, lines 165-167).
+pub const NO_TASKMODE: i8 = 0;
+pub const DIRECT_TASKMODE: i8 = 1;
+pub const VIA_SUPPORT_FUNCTION_TASKMODE: i8 = 2;
+
 /// An adjective — a word that can be applied to subjects to describe them.
 ///
 /// Corresponds to `adjective` in the C reference
@@ -369,6 +385,7 @@ impl AdjectiveMeanings {
     ) -> bool {
         let am = &meanings[am_idx];
 
+
         // Follow negation chain.
         let (actual_am_idx, actual_parity) = if let Some(negated_from) = am.negated_from {
             (negated_from, !parity)
@@ -383,6 +400,18 @@ impl AdjectiveMeanings {
             assert_fn(actual_am_idx, subj_idx, actual_parity, meanings, subjects, properties, inference_families, inferences, data_registry, definitions)
         } else {
             false // no assert method — decline
+        }
+    }
+
+    /// Mark an atom task as needing to be performed via a support function.
+    ///
+    /// Corresponds to `AdjectiveMeanings::perform_task_via_function` in the C reference
+    /// (`inform7/assertions-module/Chapter 8/Adjective Meanings.w`, lines 165-167).
+    pub fn perform_task_via_function(am_idx: usize, task: usize, meanings: &mut [AdjectiveMeaning]) {
+        if let Some(am) = meanings.get_mut(am_idx) {
+            if task < am.task_modes.len() {
+                am.task_modes[task] = VIA_SUPPORT_FUNCTION_TASKMODE;
+            }
         }
     }
 }

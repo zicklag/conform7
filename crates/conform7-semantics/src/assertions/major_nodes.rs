@@ -7,9 +7,9 @@
 //!
 //! The three passes are:
 //!
-//! 1. **pre_pass** — diagram sentences via Preform matching (this plan).
-//! 2. **pass_1** — process assertions (deferred).
-//! 3. **pass_2** — process remaining assertions (deferred).
+//! 1. **pre_pass** — diagram sentences via Preform matching (PLAN-53).
+//! 2. **pass_1** — process assertions via the 42-case matrix (PLAN-55).
+//! 3. **pass_2** — process remaining assertions, textual sentences, INFORM6CODE (PLAN-56).
 //!
 //! # References
 //!

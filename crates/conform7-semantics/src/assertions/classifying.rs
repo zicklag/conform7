@@ -100,11 +100,18 @@ mod tests {
     }
 
     #[test]
-    fn sentence_is_textual_returns_true_for_non_empty() {
+    fn sentence_is_textual_returns_false_for_node_with_children() {
         let mut node = ParseNode::new(NodeType::Sentence, Wording::new(0, 5));
         // Add a child to make it non-textual (has children)
         let child = ParseNode::new(NodeType::Verb, Wording::new(0, 5));
         node.append_child(child);
         assert!(!Classifying::sentence_is_textual(&node));
+    }
+
+    #[test]
+    fn sentence_is_textual_returns_true_for_plain_text() {
+        let node = ParseNode::new(NodeType::Sentence, Wording::new(0, 5));
+        // No children, non-empty wording → textual
+        assert!(Classifying::sentence_is_textual(&node));
     }
 }

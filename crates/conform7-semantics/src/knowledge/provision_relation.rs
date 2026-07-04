@@ -13,6 +13,7 @@ use crate::calculus::binary_predicates::{BinaryPredicate, BinaryPredicates};
 use crate::calculus::bp_term_details::BPTerms;
 use crate::knowledge::inference_subjects::InferenceSubject;
 use crate::knowledge::property_permissions::PropertyPermission;
+use crate::knowledge::properties::Property;
 
 // ---------------------------------------------------------------------------
 // Global constants for family and predicate indices
@@ -62,7 +63,7 @@ impl ProvisionRelation {
     ///
     /// Corresponds to `ProvisionRelation::stock` in the C reference
     /// (`inform7/knowledge-module/Chapter 3/The Provision Relation.w`, lines 34-43).
-    pub fn stock(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[()]) {
+    pub fn stock(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[Property]) {
         if n == 1 {
             let family_idx = 0; // provision family is at index 0
             let left_term = BPTerms::new(None);
@@ -141,21 +142,17 @@ impl ProvisionRelation {
         _inference_families: &[crate::knowledge::inferences::InferenceFamily],
         _inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         _data_registry: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        _property_registry: &[()],
+        _property_registry: &[Property],
     ) -> bool {
         if let Some(property_name) = spec1 {
-            // SAFETY: We need to pass both a mutable reference to subjects[subj0]
-            // (which grant modifies) and an immutable reference to the full subjects
-            // slice (which grant reads for hierarchy traversal in find). These are
-            // non-overlapping uses because grant only reads from subjects and writes
-            // to the specific subject at subj0.
-            let subject = unsafe { &mut *(&mut subjects[subj0] as *mut InferenceSubject) };
+            let (first, rest) = subjects.split_at_mut(subj0 + 1);
+            let subject = &mut first[subj0];
             PropertyPermission::grant(
                 subject,
                 property_name,
                 Some("provision"),
                 subj0,
-                subjects,
+                &*rest,
                 permissions,
             );
             // Note: Instances::update_adjectival_forms is deferred.

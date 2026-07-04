@@ -25,6 +25,7 @@
 use crate::calculus::binary_predicate_families::BpFamily;
 use crate::calculus::binary_predicates::BinaryPredicate;
 use crate::calculus::equality_relation::{EMPTY_FAMILY, EQUALITY_FAMILY};
+use crate::knowledge::properties::Property;
 
 /// The equality details module.
 ///
@@ -101,7 +102,7 @@ impl EqualityDetails {
         _inference_families: &[crate::knowledge::inferences::InferenceFamily],
         _inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         _property_inferences: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        _constructors: &[()],
+        _constructors: &[Property],
     ) -> bool {
         false
     }
@@ -160,7 +161,7 @@ impl EqualityDetails {
         _inference_families: &[crate::knowledge::inferences::InferenceFamily],
         _inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         _property_inferences: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        _constructors: &[()],
+        _constructors: &[Property],
     ) -> bool {
         false
     }

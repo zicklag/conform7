@@ -17,7 +17,7 @@
 /// - No `K_object` filtering (iterates all instances)
 /// - No `allocation_id` field (uses vector index)
 /// - No macros (uses methods and an iterator)
-use std::mem::ManuallyDrop;
+use parking_lot::Mutex;
 use crate::knowledge::instances::Instance;
 
 /// The ordering instances module.
@@ -26,20 +26,15 @@ use crate::knowledge::instances::Instance;
 /// (`inform7/knowledge-module/Chapter 2/Ordering Instances.w`).
 pub struct OrderingInstances;
 
-/// The first instance in the ordering, if any.
-/// Corresponds to `first_instance_in_list` in the C reference.
-static mut FIRST_INSTANCE: Option<usize> = None;
+/// Internal state for the ordering linked list.
+struct OrderingState {
+    first: Option<usize>,
+    last: Option<usize>,
+    next: Vec<Option<usize>>,
+}
 
-/// The last instance in the ordering, if any.
-/// Corresponds to `last_instance_in_list` in the C reference.
-static mut LAST_INSTANCE: Option<usize> = None;
-
-/// The next-instance pointers, indexed by instance index.
-/// Corresponds to `next_instance_in_current_list` in the C reference.
-///
-/// Wrapped in `ManuallyDrop` to prevent automatic drop at program exit,
-/// which would cause a double-free on the heap-allocated Vec buffer.
-static mut NEXT_INSTANCE: ManuallyDrop<Vec<Option<usize>>> = ManuallyDrop::new(Vec::new());
+/// The ordering state, protected by a mutex for thread safety.
+static ORDERING: Mutex<Option<OrderingState>> = Mutex::new(None);
 
 impl OrderingInstances {
     /// Initialise the ordering linked list.
@@ -50,16 +45,12 @@ impl OrderingInstances {
     /// Creates a next-instance array with one entry per instance, all set to None.
     /// Resets first and last instance pointers.
     pub fn begin(instances: &[Instance]) {
-        unsafe {
-            // Replace the Vec without dropping the old one (avoids double-free
-            // on the heap-allocated Vec buffer at program exit).
-            std::ptr::write(
-                std::ptr::addr_of_mut!(NEXT_INSTANCE),
-                ManuallyDrop::new(vec![None; instances.len()]),
-            );
-            FIRST_INSTANCE = None;
-            LAST_INSTANCE = None;
-        }
+        let mut ordering = ORDERING.lock();
+        *ordering = Some(OrderingState {
+            first: None,
+            last: None,
+            next: vec![None; instances.len()],
+        });
     }
 
     /// Add an instance to the end of the ordering list.
@@ -71,15 +62,14 @@ impl OrderingInstances {
     /// Otherwise, links the last instance to this one.
     /// Then sets the last instance to this one.
     pub fn place_next(instance_idx: usize) {
-        unsafe {
-            let last = std::ptr::addr_of!(LAST_INSTANCE).read();
-            if let Some(last_idx) = last {
-                NEXT_INSTANCE[last_idx] = Some(instance_idx);
-            } else {
-                FIRST_INSTANCE = Some(instance_idx);
-            }
-            LAST_INSTANCE = Some(instance_idx);
+        let mut ordering = ORDERING.lock();
+        let state = ordering.as_mut().expect("OrderingInstances::begin must be called before place_next");
+        if let Some(last_idx) = state.last {
+            state.next[last_idx] = Some(instance_idx);
+        } else {
+            state.first = Some(instance_idx);
         }
+        state.last = Some(instance_idx);
     }
 
     /// Order all instances by definition sequence.
@@ -99,14 +89,14 @@ impl OrderingInstances {
     ///
     /// Corresponds to `FIRST_IN_INSTANCE_ORDERING` in the C reference.
     pub fn first() -> Option<usize> {
-        unsafe { std::ptr::addr_of!(FIRST_INSTANCE).read() }
+        ORDERING.lock().as_ref().and_then(|state| state.first)
     }
 
     /// Return the index of the next instance after the given one in the ordering.
     ///
     /// Corresponds to `NEXT_IN_INSTANCE_ORDERING(I)` in the C reference.
     pub fn next(instance_idx: usize) -> Option<usize> {
-        unsafe { (*NEXT_INSTANCE).get(instance_idx).copied().flatten() }
+        ORDERING.lock().as_ref().and_then(|state| state.next.get(instance_idx).copied()).flatten()
     }
 
     /// Return an iterator over the ordered instance indices.

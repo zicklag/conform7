@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Conform7 Inter — Read and write Inform 7 Intermediate Representation (Inter) files.
 //!
 //! This crate is the compatibility linchpin of the Conform7 compiler. It provides

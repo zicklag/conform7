@@ -81,25 +81,16 @@ impl SameAsRelations {
     /// Only valued properties (those with `value_data.is_some()`) get a same-property
     /// relation. Either-or properties are skipped.
     ///
-    /// The `property_registry` parameter is passed as `&[()]` to avoid a circular
-    /// dependency between the calculus and knowledge modules. It is cast back to
-    /// `&[Property]` inside this function.
     pub fn stock(
         _family: &BpFamily,
         n: u8,
         bp_registry: &mut Vec<BinaryPredicate>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) {
         if n == 2 {
-            // SAFETY: The caller (knowledge module) always passes a `&[Property]`
-            // cast to `&[()]`. We cast it back here.
-            let properties: &[Property] = unsafe {
-                &*(property_registry as *const [()] as *const [Property])
-            };
-
             let family_idx = SAME_PROPERTY_FAMILY;
 
-            for (prn_idx, prn) in properties.iter().enumerate() {
+            for (prn_idx, prn) in property_registry.iter().enumerate() {
                 // Only valued properties get a same-property relation.
                 if prn.value_data.is_none() {
                     continue;
@@ -286,23 +277,16 @@ mod tests {
         }
     }
 
-    /// Helper to cast a `&[Property]` to `&[()]` for the stock function.
-    fn cast_property_registry(properties: &[Property]) -> &[()] {
-        unsafe { &*(properties as *const [Property] as *const [()]) }
-    }
-
     #[test]
     fn test_stock_skips_stage_1() {
         let (families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
-        let prop_reg = cast_property_registry(&properties);
-
         // Stock at stage 1 should do nothing
         families[SAME_PROPERTY_FAMILY]
             .methods
             .stock
-            .unwrap()(&families[SAME_PROPERTY_FAMILY], 1, &mut bp_registry, prop_reg);
+            .unwrap()(&families[SAME_PROPERTY_FAMILY], 1, &mut bp_registry, &properties);
         assert_eq!(bp_registry.len(), 0);
     }
 
@@ -315,9 +299,9 @@ mod tests {
             make_valued_property("point of view"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // 3 valued properties → 3 pairs = 6 BPs
         assert_eq!(bp_registry.len(), 6);
@@ -333,9 +317,9 @@ mod tests {
             make_either_or_property("closed"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // 2 valued properties → 2 pairs = 4 BPs
         assert_eq!(bp_registry.len(), 4);
@@ -346,9 +330,9 @@ mod tests {
         let (mut families, mut bp_registry) = SameAsRelations::start();
         let properties: Vec<Property> = vec![];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         assert_eq!(bp_registry.len(), 0);
     }
@@ -361,9 +345,9 @@ mod tests {
             make_valued_property("carrying capacity"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // First property: "height" → "same-height-as" at index 0
         assert_eq!(
@@ -396,9 +380,9 @@ mod tests {
             make_valued_property("carrying capacity"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // Right-way-round BPs should have family_specific set
         assert_eq!(
@@ -420,9 +404,9 @@ mod tests {
         let (mut families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // Index 0 = right-way-round, index 1 = reversal
         assert!(bp_registry[0].right_way_round);
@@ -436,9 +420,9 @@ mod tests {
         let (mut families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         assert_eq!(bp_registry[0].relation_family, SAME_PROPERTY_FAMILY);
         assert_eq!(bp_registry[1].relation_family, SAME_PROPERTY_FAMILY);
@@ -505,9 +489,9 @@ mod tests {
         let (mut families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         let result = BinaryPredicateFamilies::typecheck(
             &bp_registry[0],
@@ -530,9 +514,9 @@ mod tests {
             make_valued_property("carrying capacity"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // Right-way-round BPs should return the property index
         assert_eq!(
@@ -550,9 +534,9 @@ mod tests {
         let (mut families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
 
         // Reversal (index 1) should return None
         assert_eq!(
@@ -650,14 +634,14 @@ mod tests {
             make_either_or_property("closed"),
         ];
 
-        let prop_reg = cast_property_registry(&properties);
+        
 
         // Stage 1: nothing happens
         BinaryPredicateFamilies::first_stock(&mut families, &mut bp_registry);
         assert_eq!(bp_registry.len(), 0);
 
         // Stage 2: 3 valued properties → 3 pairs = 6 BPs
-        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
+        BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, &properties);
         assert_eq!(bp_registry.len(), 6);
 
         // Verify each right-way-round BP

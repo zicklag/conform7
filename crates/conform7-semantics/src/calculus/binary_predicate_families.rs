@@ -1,6 +1,7 @@
 use crate::calculus::binary_predicates::BinaryPredicate;
 use crate::knowledge::inferences::{Inference, InferenceFamily};
 use crate::knowledge::property_inferences::PropertyInferenceData;
+use crate::knowledge::properties::Property;
 
 /// Return value from typecheck when the family does not handle the given kinds.
 ///
@@ -20,7 +21,7 @@ pub struct BpFamilyMethods {
     /// Stock up on relations (stage 1: built-in essentials; stage 2: one per value property).
     /// Corresponds to STOCK_BPF_MTID.
     #[allow(clippy::type_complexity)]
-    pub stock: Option<fn(&BpFamily, u8, &mut Vec<BinaryPredicate>, &[()])>,
+    pub stock: Option<fn(&BpFamily, u8, &mut Vec<BinaryPredicate>, &[Property])>,
     /// Typecheck the terms of a relation.
     /// Corresponds to TYPECHECK_BPF_MTID.
     #[allow(clippy::type_complexity)]
@@ -42,7 +43,7 @@ pub struct BpFamilyMethods {
             &[InferenceFamily],
             &mut Vec<Inference>,
             &mut Vec<PropertyInferenceData>,
-            &[()],
+            &[Property],
         ) -> bool,
     >,
     /// Compile run-time code for a task (test, make-true, make-false).
@@ -144,7 +145,7 @@ impl BinaryPredicateFamilies {
     ///
     /// Corresponds to `BinaryPredicateFamilies::second_stock` in the C reference
     /// (`services/calculus-module/Chapter 3/Binary Predicate Families.w`, lines 112-122).
-    pub fn second_stock(families: &mut [BpFamily], bp_registry: &mut Vec<BinaryPredicate>, property_registry: &[()]) {
+    pub fn second_stock(families: &mut [BpFamily], bp_registry: &mut Vec<BinaryPredicate>, property_registry: &[Property]) {
         for family in families.iter_mut() {
             if let Some(stock) = family.methods.stock {
                 stock(family, 2, bp_registry, property_registry);
@@ -188,7 +189,7 @@ impl BinaryPredicateFamilies {
         inference_families: &[InferenceFamily],
         inferences: &mut Vec<Inference>,
         data_registry: &mut Vec<PropertyInferenceData>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) -> bool {
         if bp.relation_family < families.len() {
             if let Some(assert) = families[bp.relation_family].methods.assert {

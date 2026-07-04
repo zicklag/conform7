@@ -26,6 +26,7 @@ use crate::calculus::binary_predicate_families::BpFamily;
 use crate::calculus::binary_predicate_families::BpFamilyMethods;
 use crate::calculus::binary_predicates::BinaryPredicate;
 use crate::calculus::binary_predicates::BinaryPredicates;
+use crate::knowledge::properties::Property;
 use crate::calculus::bp_term_details::BPTerms;
 
 // ---------------------------------------------------------------------------
@@ -258,7 +259,7 @@ impl ExplicitRelations {
         _inference_families: &[crate::knowledge::inferences::InferenceFamily],
         _inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         _property_inferences: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        _constructors: &[()],
+        _constructors: &[Property],
     ) -> bool {
         false
     }

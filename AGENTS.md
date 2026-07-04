@@ -169,3 +169,10 @@ Make commits with in-depth descriptions as code is written. Each commit
 should capture a coherent change with a message that explains *what* was
 done and *why*. This keeps the history readable and makes it easy to
 understand the evolution of the codebase.
+
+### 14. No `unsafe` Rust
+
+We shouldn't need it. If we need specially optimized code using `unsafe`
+somehow it should be independencies like `salsa` or we need to find
+other dependencies to help with our specific need that abstract over
+the unsafe code for us.

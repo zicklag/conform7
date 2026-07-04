@@ -8,7 +8,7 @@
 /// Corresponds to `KindSubjects` in the C reference
 /// (`inform7/knowledge-module/Chapter 4/Kind Subjects.w`).
 use crate::kind_constructors::KindConstructor;
-use crate::kinds::Kind;
+use crate::kinds::{Kind, KindMutableState};
 use crate::knowledge::inference_subjects::{
     InferenceSubject, InferenceSubjectFamily, InferenceSubjectFamilyMethods,
 };
@@ -158,6 +158,7 @@ pub fn to_kind(
         kind_variable_number: 0,
         kc_args: [None, None],
         construct_id: idx,
+        mutable_state: KindMutableState::from_constructor(&constructors[idx]),
     })
 }
 

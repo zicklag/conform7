@@ -135,12 +135,9 @@ impl ValueProperties {
             };
 
         // Fix the BP and its reversal.
-        // SAFETY: fix_property_bp casts &[()] back to &[Property] internally.
-        let property_registry: &[()] =
-            unsafe { &*(properties as *const [Property] as *const [()]) };
-        SettingPropertyRelations::fix_property_bp(bp_idx, bp_registry, property_registry);
+        SettingPropertyRelations::fix_property_bp(bp_idx, bp_registry, properties);
         if let Some(rev_idx) = bp_registry[bp_idx].reversal {
-            SettingPropertyRelations::fix_property_bp(rev_idx, bp_registry, property_registry);
+            SettingPropertyRelations::fix_property_bp(rev_idx, bp_registry, properties);
         }
 
         // Store the BP index in the property's value data.

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::sync::LazyLock;
 
 use crate::calculus::atoms::{AtomElement, PcalcProp, PredicateRef};
@@ -242,7 +244,7 @@ impl CreationPredicates {
             return false;
         }
         match &prop.predicate {
-            Some(PredicateRef::Unary(name)) => *name == CALLING_PREDICATE
+            Some(PredicateRef::Unary(name)) => name.as_ref() == CALLING_PREDICATE
                 || name.starts_with("calling="),
             _ => false,
         }
@@ -252,7 +254,7 @@ impl CreationPredicates {
     ///
     /// Corresponds to `CreationPredicates::what_kind_of_calling` in the C reference
     /// (`inform7/assertions-module/Chapter 8/The Creation Predicates.w`, lines 67-73).
-    pub fn what_kind_of_calling(prop: &PcalcProp) -> Option<&'static str> {
+    pub fn what_kind_of_calling(prop: &PcalcProp) -> Option<&str> {
         if !Self::is_calling_up_atom(prop) {
             return None;
         }
@@ -291,7 +293,7 @@ impl CreationPredicates {
     ///
     /// Corresponds to `CreationPredicates::get_calling_name` in the C reference
     /// (`inform7/assertions-module/Chapter 8/The Creation Predicates.w`, lines 82-88).
-    pub fn get_calling_name(prop: &PcalcProp) -> Option<&'static str> {
+    pub fn get_calling_name(prop: &PcalcProp) -> Option<&str> {
         if !Self::is_calling_up_atom(prop) {
             return None;
         }
@@ -382,7 +384,7 @@ impl CreationPredicates {
     ///
     /// Corresponds to `CreationPredicates::what_kind` in the C reference
     /// (`inform7/assertions-module/Chapter 8/The Creation Predicates.w`, lines 121-127).
-    pub fn what_kind(prop: &PcalcProp) -> Option<&'static str> {
+    pub fn what_kind(prop: &PcalcProp) -> Option<&str> {
         if prop.element != AtomElement::Predicate || prop.arity != 1 {
             return None;
         }
@@ -416,36 +418,25 @@ use std::sync::Mutex;
 
 /// A cache for interned predicate name strings.
 ///
-/// This allows us to create `&'static str` predicate names from dynamic
+/// This allows us to create `Arc<str>` predicate names from dynamic
 /// strings without leaking memory. The cache is never cleared, but it
 /// only stores a bounded number of predicate names.
-static PREDICATE_NAME_CACHE: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static PREDICATE_NAME_CACHE: LazyLock<Mutex<Vec<Arc<str>>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
-/// Intern a predicate name string, returning a `&'static str`.
+/// Intern a predicate name string, returning an `Arc<str>`.
 ///
-/// This stores the string in a global cache and returns a reference
-/// with a static lifetime. The cache is never cleared, so the string
-/// lives for the duration of the process.
-fn intern_predicate_name(name: &str) -> &'static str {
+/// This stores the string in a global cache and returns an `Arc<str>`
+/// reference. The cache is never cleared, so the string lives for the
+/// duration of the process.
+fn intern_predicate_name(name: &str) -> Arc<str> {
     let mut cache = PREDICATE_NAME_CACHE.lock().unwrap();
     // Check if we already have this name
-    if let Some(existing) = cache.iter().find(|s| s.as_str() == name) {
-        // Safety: the cache is never cleared, so the reference is valid
-        // for the lifetime of the process.
-        let ptr = existing.as_str();
-        // We need to extend the lifetime to 'static.
-        // Since the cache owns the String and is never cleared,
-        // the reference is valid for 'static.
-        //
-        // We use unsafe to extend the lifetime. This is safe because:
-        // 1. The cache owns the String and is never cleared
-        // 2. The reference points to heap memory that lives forever
-        // 3. The cache is protected by a Mutex, so no concurrent modification
-        unsafe { &*(ptr as *const str) }
+    if let Some(existing) = cache.iter().find(|s| s.as_ref() == name) {
+        Arc::clone(existing)
     } else {
-        cache.push(name.to_string());
-        let ptr = cache.last().unwrap().as_str();
-        unsafe { &*(ptr as *const str) }
+        let leaked: Arc<str> = Arc::from(name.to_string().into_boxed_str());
+        cache.push(Arc::clone(&leaked));
+        leaked
     }
 }
 #[cfg(test)]
@@ -598,7 +589,7 @@ mod tests {
         assert_eq!(atom.element, AtomElement::Predicate);
         assert_eq!(atom.arity, 1);
         match &atom.predicate {
-            Some(PredicateRef::Unary(name)) => assert_eq!(*name, IS_A_VAR_PREDICATE),
+            Some(PredicateRef::Unary(name)) => assert_eq!(name.as_ref(), IS_A_VAR_PREDICATE),
             _ => panic!("expected unary predicate"),
         }
     }
@@ -610,7 +601,7 @@ mod tests {
         assert_eq!(atom.element, AtomElement::Predicate);
         assert_eq!(atom.arity, 1);
         match &atom.predicate {
-            Some(PredicateRef::Unary(name)) => assert_eq!(*name, IS_A_CONST_PREDICATE),
+            Some(PredicateRef::Unary(name)) => assert_eq!(name.as_ref(), IS_A_CONST_PREDICATE),
             _ => panic!("expected unary predicate"),
         }
     }

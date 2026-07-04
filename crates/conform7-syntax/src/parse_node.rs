@@ -420,16 +420,29 @@ impl ParseNode {
     /// Calls `visitor` on each node in pre-order (parent before children).
     pub fn traverse_mut(&mut self, visitor: &mut impl FnMut(&mut ParseNode)) {
         visitor(self);
-        // Use raw pointers to iterate the linked list without borrow conflicts.
-        // SAFETY: we hold exclusive `&mut self` on the tree root, so no other
-        // reference can alias these nodes.
-        let mut raw = self.down.as_mut().map(|b| &mut **b as *mut ParseNode);
-        while let Some(ptr) = raw {
-            let node = unsafe { &mut *ptr };
-            let next_raw = node.next.as_mut().map(|b| &mut **b as *mut ParseNode);
-            node.traverse_mut(visitor);
-            raw = next_raw;
+        // Take ownership of children to avoid borrow conflicts with the linked list.
+        // We temporarily disconnect the children, recurse on each, then rebuild
+        // the linked list. The visitor only sees each node individually, so the
+        // temporary disconnection is invisible to it.
+        let mut children: Vec<Box<ParseNode>> = Vec::new();
+        let mut child = self.down.take();
+        while let Some(mut boxed) = child {
+            let next = boxed.next.take();
+            children.push(boxed);
+            child = next;
         }
+        // Recurse on each child (borrow, not consume, so we can rebuild later)
+        for child in &mut children {
+            child.traverse_mut(visitor);
+        }
+        // Rebuild the linked list in reverse order
+        let mut prev: Option<Box<ParseNode>> = None;
+        for child in children.into_iter().rev() {
+            let mut node = child;
+            node.next = prev;
+            prev = Some(node);
+        }
+        self.down = prev;
     }
 }
 

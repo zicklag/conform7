@@ -126,23 +126,15 @@ impl SettingPropertyRelations {
     /// At stage 2, iterates over all BPs in the family and resolves any
     /// pending property text to actual property indices.
     ///
-    /// The `property_registry` parameter is passed as `&[()]` to avoid a circular
-    /// dependency between the calculus and knowledge modules. It is cast back to
-    /// `&[Property]` inside this function.
+    /// The `property_registry` parameter is the list of all known properties.
     #[allow(clippy::ptr_arg)]
     pub fn stock(
         _family: &BpFamily,
         n: u8,
         bp_registry: &mut Vec<BinaryPredicate>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) {
         if n == 2 {
-            // SAFETY: The caller (knowledge module) always passes a `&[Property]`
-            // cast to `&[()]`. We cast it back here.
-            let properties: &[Property] = unsafe {
-                &*(property_registry as *const [()] as *const [Property])
-            };
-
             let family_idx = PROPERTY_SETTING_FAMILY;
 
             // Collect indices of BPs to fix (avoid borrow issues with mutable iteration).
@@ -157,7 +149,7 @@ impl SettingPropertyRelations {
 
             // Resolve each pending BP.
             for bp_idx in to_fix {
-                Self::fix_property_bp_internal(bp_idx, bp_registry, properties);
+                Self::fix_property_bp_internal(bp_idx, bp_registry, property_registry);
             }
         }
     }
@@ -276,7 +268,7 @@ impl SettingPropertyRelations {
         inference_families: &[crate::knowledge::inferences::InferenceFamily],
         inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         data_registry: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) -> bool {
         // Extract the property index from the BP's family_specific data.
         let prn_idx = match PropertySettingBpData::get_property(&bp.family_specific) {
@@ -285,11 +277,7 @@ impl SettingPropertyRelations {
         };
 
         // Look up the property name from the property registry.
-        // SAFETY: The caller always passes a `&[Property]` cast to `&[()]`.
-        let properties: &[Property] = unsafe {
-            &*(property_registry as *const [()] as *const [Property])
-        };
-        let prn = properties[prn_idx].name;
+        let prn = property_registry[prn_idx].name;
 
         // Draw a property inference on the subject.
         let result = PropertyInferences::draw(
@@ -410,19 +398,13 @@ impl SettingPropertyRelations {
     ///
     /// Looks up the property by name in the property registry, updates the BP's
     /// family_specific data, and sets up schemas.
-    ///
-    /// The `property_registry` parameter is passed as `&[()]` to avoid a circular
     #[allow(non_snake_case, clippy::ptr_arg)]
     pub fn fix_property_bp(
         bp_idx: usize,
         bp_registry: &mut Vec<BinaryPredicate>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) {
-        // SAFETY: The caller always passes a `&[Property]` cast to `&[()]`.
-        let properties: &[Property] = unsafe {
-            &*(property_registry as *const [()] as *const [Property])
-        };
-        Self::fix_property_bp_internal(bp_idx, bp_registry, properties);
+        Self::fix_property_bp_internal(bp_idx, bp_registry, property_registry);
     }
 
     /// Set up schemas for a property's setting BP.
@@ -433,20 +415,14 @@ impl SettingPropertyRelations {
     /// Sets the TEST_ATOM_TASK and NOW_ATOM_TRUE_TASK schemas, and the
     /// domain of the right term to the property's value kind.
     ///
-    /// The `property_registry` parameter is passed as `&[()]` to avoid a circular
-    /// dependency. It is cast back to `&[Property]` inside this function.
     #[allow(non_snake_case)]
     pub fn set_property_BP_schemas(
         bp_idx: usize,
         prn_idx: usize,
         bp_registry: &mut [BinaryPredicate],
-        property_registry: &[()],
+        property_registry: &[Property],
     ) {
-        // SAFETY: The caller always passes a `&[Property]` cast to `&[()]`.
-        let properties: &[Property] = unsafe {
-            &*(property_registry as *const [()] as *const [Property])
-        };
-        Self::set_property_BP_schemas_internal(bp_idx, prn_idx, bp_registry, properties);
+        Self::set_property_BP_schemas_internal(bp_idx, prn_idx, bp_registry, property_registry);
     }
 
     /// Create a setting property BP for an existing (nameless) property.
@@ -461,7 +437,7 @@ impl SettingPropertyRelations {
     ///
     /// * `prn_idx` - The index of the property in the property registry.
     /// * `bp_registry` - The BP registry to add to.
-    /// * `property_registry` - The property registry (cast to `&[()]`).
+    /// * `property_registry` - The property registry.
     ///
     /// # Returns
     ///
@@ -470,7 +446,7 @@ impl SettingPropertyRelations {
     pub fn make_set_nameless_property_BP(
         prn_idx: usize,
         bp_registry: &mut Vec<BinaryPredicate>,
-        property_registry: &[()],
+        property_registry: &[Property],
     ) -> usize {
         let family_idx = PROPERTY_SETTING_FAMILY;
         let left_term = BPTerms::new(None);
@@ -487,10 +463,6 @@ impl SettingPropertyRelations {
             None,
             bp_registry,
         );
-        // SAFETY: The caller always passes a `&[Property]` cast to `&[()]`.
-        let properties: &[Property] = unsafe {
-            &*(property_registry as *const [()] as *const [Property])
-        };
 
         // Store the resolved property index.
         let encoded = PropertySettingBpData::encode_property(prn_idx);
@@ -504,7 +476,7 @@ impl SettingPropertyRelations {
         }
 
         // Set up schemas.
-        Self::set_property_BP_schemas_internal(bp_idx, prn_idx, bp_registry, properties);
+        Self::set_property_BP_schemas_internal(bp_idx, prn_idx, bp_registry, property_registry);
 
 
         bp_idx
@@ -771,10 +743,6 @@ mod tests {
     }
 
 
-    /// Helper to cast a `&[Property]` to `&[()]` for the stock function.
-    fn cast_property_registry(properties: &[Property]) -> &[()] {
-        unsafe { &*(properties as *const [Property] as *const [()]) }
-    }
 
     #[test]
     fn test_fix_property_bp_resolves_pending_text() {
@@ -782,7 +750,7 @@ mod tests {
         let bp_idx = SettingPropertyRelations::make_set_property_BP("weight", &mut bp_registry);
 
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Fix the BP
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
@@ -805,7 +773,7 @@ mod tests {
         let bp_idx = SettingPropertyRelations::make_set_property_BP("weight", &mut bp_registry);
 
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
 
@@ -826,7 +794,7 @@ mod tests {
         let bp_idx = SettingPropertyRelations::make_set_property_BP("weight", &mut bp_registry);
 
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Fix once
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
@@ -849,7 +817,7 @@ mod tests {
         let bp_idx = SettingPropertyRelations::make_set_property_BP("nonexistent", &mut bp_registry);
 
         let properties: Vec<Property> = vec![];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Fix — should leave pending since property doesn't exist
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
@@ -871,7 +839,7 @@ mod tests {
     fn test_stock_skips_stage_1() {
         let (families, mut bp_registry) = SettingPropertyRelations::start();
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stock at stage 1 should do nothing
         families[PROPERTY_SETTING_FAMILY]
@@ -887,7 +855,7 @@ mod tests {
         let bp_idx = SettingPropertyRelations::make_set_property_BP("weight", &mut bp_registry);
 
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stock at stage 2
         families[PROPERTY_SETTING_FAMILY]
@@ -916,7 +884,7 @@ mod tests {
             make_valued_property("weight"),
             make_valued_property("height"),
         ];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stock at stage 2 via BinaryPredicateFamilies
         BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
@@ -940,7 +908,7 @@ mod tests {
 
         // Manually set one BP to resolved state
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stock at stage 2
         BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
@@ -990,7 +958,7 @@ mod tests {
         bp_registry.push(other_bp);
 
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stock at stage 2
         BinaryPredicateFamilies::second_stock(&mut families, &mut bp_registry, prop_reg);
@@ -1007,7 +975,7 @@ mod tests {
     fn test_make_set_nameless_property_bp_creates_pair() {
         let (_, mut bp_registry) = SettingPropertyRelations::start();
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         let bp_idx = SettingPropertyRelations::make_set_nameless_property_BP(
             0, &mut bp_registry, prop_reg,
@@ -1024,7 +992,7 @@ mod tests {
     fn test_make_set_nameless_property_bp_sets_schemas() {
         let (_, mut bp_registry) = SettingPropertyRelations::start();
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         let bp_idx = SettingPropertyRelations::make_set_nameless_property_BP(
             0, &mut bp_registry, prop_reg,
@@ -1262,7 +1230,7 @@ mod tests {
 
         // Fix the BP.
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
 
         // Fixed BP should return ALWAYS_MATCH.
@@ -1346,7 +1314,7 @@ mod tests {
 
         // Set up property registry.
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         let dummy_bp = BinaryPredicate {
             relation_family: PROPERTY_SETTING_FAMILY,
@@ -1415,7 +1383,7 @@ mod tests {
 
         // Fix the BP so it has a resolved property.
         let properties = vec![make_valued_property("weight")];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
 
         // Set up inference families.
@@ -1477,7 +1445,7 @@ mod tests {
             make_valued_property("weight"),
             make_valued_property("height"),
         ];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         // Stage 1: nothing happens.
         BinaryPredicateFamilies::first_stock(&mut families, &mut bp_registry);
@@ -1555,7 +1523,7 @@ mod tests {
             make_valued_property("weight"),
             make_valued_property("height"),
         ];
-        let prop_reg = cast_property_registry(&properties);
+        let prop_reg = &properties;
 
         SettingPropertyRelations::fix_property_bp(bp_idx, &mut bp_registry, prop_reg);
 

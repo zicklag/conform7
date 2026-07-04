@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use std::fmt::{self, Display, Formatter};
 
 use crate::calculus::terms::PcalcTerm;
@@ -62,9 +64,9 @@ impl AtomElement {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PredicateRef {
     /// A unary predicate, identified by name.
-    Unary(&'static str),
+    Unary(Arc<str>),
     /// A binary predicate, identified by name.
-    Binary(&'static str),
+    Binary(Arc<str>),
 }
 
 /// Reference to a quantifier.
@@ -144,11 +146,11 @@ impl PcalcProp {
     ///
     /// Corresponds to `Atoms::unary_PREDICATE_new` in the C reference
     /// (`services/calculus-module/Chapter 4/Atomic Propositions.w`, lines 92-120).
-    pub fn unary_predicate_new(predicate_name: &'static str, term: PcalcTerm) -> Self {
+    pub fn unary_predicate_new(predicate_name: impl Into<Arc<str>>, term: PcalcTerm) -> Self {
         PcalcProp {
             element: AtomElement::Predicate,
             arity: 1,
-            predicate: Some(PredicateRef::Unary(predicate_name)),
+            predicate: Some(PredicateRef::Unary(predicate_name.into())),
             terms: [Some(term), None],
             quantifier: None,
             quantification_parameter: 0,
@@ -161,14 +163,14 @@ impl PcalcProp {
     /// Corresponds to `Atoms::binary_PREDICATE_new` in the C reference
     /// (`services/calculus-module/Chapter 4/Atomic Propositions.w`, lines 122-188).
     pub fn binary_predicate_new(
-        predicate_name: &'static str,
+        predicate_name: impl Into<Arc<str>>,
         term0: PcalcTerm,
         term1: PcalcTerm,
     ) -> Self {
         PcalcProp {
             element: AtomElement::Predicate,
             arity: 2,
-            predicate: Some(PredicateRef::Binary(predicate_name)),
+            predicate: Some(PredicateRef::Binary(predicate_name.into())),
             terms: [Some(term0), Some(term1)],
             quantifier: None,
             quantification_parameter: 0,
@@ -202,7 +204,7 @@ impl PcalcProp {
         PcalcProp {
             element: AtomElement::Predicate,
             arity: 1,
-            predicate: Some(PredicateRef::Unary(up.family.name)),
+            predicate: Some(PredicateRef::Unary(Arc::from(up.family.name))),
             terms: [Some(term), None],
             quantifier: None,
             quantification_parameter: 0,
@@ -250,9 +252,9 @@ impl PcalcProp {
     ///
     /// Corresponds to `Atoms::is_binary_predicate` in the C reference
     /// (`services/calculus-module/Chapter 4/Atomic Propositions.w`, lines 131-140).
-    pub fn is_binary_predicate(&self) -> Option<&'static str> {
+    pub fn is_binary_predicate(&self) -> Option<&str> {
         match &self.predicate {
-            Some(PredicateRef::Binary(name)) => Some(name),
+            Some(PredicateRef::Binary(name)) => Some(name.as_ref()),
             _ => None,
         }
     }
@@ -262,7 +264,7 @@ impl PcalcProp {
     /// Corresponds to `Atoms::is_equality_predicate` in the C reference
     /// (`services/calculus-module/Chapter 4/Atomic Propositions.w`, lines 142-150).
     pub fn is_equality_predicate(&self) -> bool {
-        matches!(&self.predicate, Some(PredicateRef::Binary(name)) if *name == "equality")
+        matches!(&self.predicate, Some(PredicateRef::Binary(name)) if name.as_ref() == "equality")
     }
 
     /// Validate this atom.
@@ -392,7 +394,7 @@ impl PcalcProp {
                         }
                     }
                     Some(PredicateRef::Binary(name)) => {
-                        if *name == "equality" {
+                        if name.as_ref() == "equality" {
                             // Special notation for equality
                             if let (Some(t0), Some(t1)) = (&self.terms[0], &self.terms[1]) {
                                 write!(f, "({t0} == {t1})")?;
@@ -504,7 +506,7 @@ mod tests {
         let a = PcalcProp::unary_predicate_new("kind=number", term);
         assert_eq!(a.element, AtomElement::Predicate);
         assert_eq!(a.arity, 1);
-        assert_eq!(a.predicate, Some(PredicateRef::Unary("kind=number")));
+        assert_eq!(a.predicate, Some(PredicateRef::Unary(Arc::from("kind=number"))));
         assert!(a.terms[0].is_some());
     }
 
@@ -515,7 +517,7 @@ mod tests {
         let a = PcalcProp::binary_predicate_new("equality", t0, t1);
         assert_eq!(a.element, AtomElement::Predicate);
         assert_eq!(a.arity, 2);
-        assert_eq!(a.predicate, Some(PredicateRef::Binary("equality")));
+        assert_eq!(a.predicate, Some(PredicateRef::Binary(Arc::from("equality"))));
         assert!(a.terms[0].is_some());
         assert!(a.terms[1].is_some());
     }
@@ -643,7 +645,7 @@ mod tests {
     fn test_validate_predicate_missing_term() {
         let mut a = PcalcProp::new(AtomElement::Predicate);
         a.arity = 1;
-        a.predicate = Some(PredicateRef::Unary("test"));
+        a.predicate = Some(PredicateRef::Unary(Arc::from("test")));
         assert!(a.validate().is_err());
     }
 

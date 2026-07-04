@@ -18,6 +18,49 @@ pub const MAX_KIND_CONSTRUCTION_ARITY: usize = 2;
 /// A base kind like `number` is a leaf. A composite kind like
 /// `list of numbers` is a unary construction. A binary construction
 /// like `relation of numbers to texts` has two children.
+/// Mutable per-kind-instance state that was previously stored on the static
+/// KindConstructor and mutated via unsafe pointer casts.
+///
+/// These fields are per-kind-instance state in the C reference, but were
+/// conflated with the immutable constructor metadata in the Rust port.
+#[derive(Clone, Debug)]
+pub struct KindMutableState {
+    /// Range number for indexing.
+    pub class_number: i32,
+    /// Whether this is an arithmetic kind.
+    pub arithmetic: bool,
+    /// Whether this is an enumeration kind.
+    pub enumeration: bool,
+    /// Next free value index for enumeration kinds.
+    pub next_free_value: i32,
+    /// Where the superkind was set.
+    pub superkind_set_at: Option<usize>,
+    /// Whether the dimensional form is fixed (derived kind).
+    pub dimensional_form_fixed: bool,
+    /// Documentation reference.
+    pub documentation_reference: Option<&'static str>,
+    /// Specification text for the index.
+    pub specification_text: Option<&'static str>,
+}
+
+impl KindMutableState {
+    /// Create mutable state initialized from a KindConstructor's initial values.
+    pub fn from_constructor(con: &KindConstructor) -> Self {
+        KindMutableState {
+            class_number: con.class_number,
+            arithmetic: con.arithmetic,
+            enumeration: con.enumeration,
+            next_free_value: con.next_free_value,
+            superkind_set_at: con.superkind_set_at,
+            dimensional_form_fixed: con.dimensional_form_fixed,
+            documentation_reference: con.documentation_reference,
+            specification_text: con.specification_text,
+        }
+    }
+}
+
+
+
 #[derive(Clone, Debug)]
 pub struct Kind {
     /// The constructor used to build this kind (never None for valid kinds).
@@ -33,6 +76,8 @@ pub struct Kind {
     /// unsafe lifetime transmutation. Set to `usize::MAX` when the
     /// constructor is a `&'static` reference (the normal case).
     pub construct_id: usize,
+    /// Mutable per-kind-instance state.
+    pub mutable_state: KindMutableState,
 }
 
 impl Kind {
@@ -55,6 +100,7 @@ impl Kind {
             kind_variable_number: 0,
             kc_args,
             construct_id: usize::MAX,
+            mutable_state: KindMutableState::from_constructor(con),
         }
     }
 
@@ -69,6 +115,7 @@ impl Kind {
             kind_variable_number: 0,
             kc_args: [Some(Box::new(x)), None],
             construct_id: usize::MAX,
+            mutable_state: KindMutableState::from_constructor(con),
         }
     }
 
@@ -77,12 +124,12 @@ impl Kind {
     /// Corresponds to `Kinds::binary_con` in the C reference
     /// (`services/kinds-module/Chapter 2/Kinds.w`, lines 152-163).
     pub fn binary_con(con: &'static KindConstructor, x: Kind, y: Kind) -> Self {
-        assert_eq!(con.arity, 2, "binary_con requires arity 2 constructor");
         Kind {
             construct: con,
             kind_variable_number: 0,
             kc_args: [Some(Box::new(x)), Some(Box::new(y))],
             construct_id: usize::MAX,
+            mutable_state: KindMutableState::from_constructor(con),
         }
     }
 
@@ -133,6 +180,9 @@ impl Kind {
             kind_variable_number: n,
             kc_args: [declaration.map(Box::new), None],
             construct_id: usize::MAX,
+            mutable_state: KindMutableState::from_constructor(
+                &crate::familiar_kinds::CON_KIND_VARIABLE,
+            ),
         }
     }
 

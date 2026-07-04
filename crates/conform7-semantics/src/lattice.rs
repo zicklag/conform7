@@ -1,7 +1,7 @@
 use std::ptr;
 
 use crate::familiar_kinds;
-use crate::kinds::Kind;
+use crate::kinds::{Kind, KindMutableState};
 
 /// The superkind of a given kind in the conformance hierarchy.
 ///
@@ -138,6 +138,7 @@ pub fn join(k1: &Kind, k2: &Kind) -> Option<Kind> {
                 kind_variable_number: 0,
                 kc_args: joined_args,
                 construct_id: usize::MAX,
+                mutable_state: KindMutableState::from_constructor(k1.construct),
             });
         }
         }
@@ -211,6 +212,7 @@ pub fn meet(k1: &Kind, k2: &Kind) -> Option<Kind> {
                 kind_variable_number: 0,
                 kc_args: met_args,
                 construct_id: usize::MAX,
+                mutable_state: KindMutableState::from_constructor(k1.construct),
             });
         }
     }

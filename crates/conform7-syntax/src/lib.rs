@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Syntax definitions for Inform 7 source text.
 //!
 //! This crate defines the `SyntaxKind` enum — the canonical set of token and

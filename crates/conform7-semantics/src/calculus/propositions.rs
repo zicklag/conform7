@@ -269,6 +269,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use crate::calculus::atoms::QuantifierRef;
     use crate::calculus::terms::PcalcTerm;
 
@@ -308,7 +309,7 @@ mod tests {
         let second = prop.next.as_ref().unwrap();
         assert_eq!(
             second.predicate,
-            Some(crate::calculus::atoms::PredicateRef::Unary("kind=text"))
+            Some(crate::calculus::atoms::PredicateRef::Unary(Arc::from("kind=text")))
         );
         assert!(second.next.is_none());
     }
@@ -508,7 +509,7 @@ mod tests {
         let second = copy.next.as_ref().unwrap();
         assert_eq!(
             second.predicate,
-            Some(crate::calculus::atoms::PredicateRef::Unary("kind=text"))
+            Some(crate::calculus::atoms::PredicateRef::Unary(Arc::from("kind=text")))
         );
     }
 

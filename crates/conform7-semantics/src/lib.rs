@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Semantics for Inform 7 — the kind system foundation.
 //!
 //! This crate defines the core kind system data structures — `Kind` and

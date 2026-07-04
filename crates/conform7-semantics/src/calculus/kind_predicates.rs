@@ -95,7 +95,7 @@ impl KindPredicates {
     ///
     /// Corresponds to `KindPredicates::get_kind` in the C reference
     /// (`services/calculus-module/Chapter 2/Kind Predicates.w`, lines 37-43).
-    pub fn get_kind(prop: &PcalcProp) -> Option<&'static str> {
+    pub fn get_kind(prop: &PcalcProp) -> Option<&str> {
         if !KindPredicates::is_kind_atom(prop) {
             return None;
         }

@@ -30,6 +30,7 @@
 use crate::calculus::binary_predicate_families::{BpFamily, BpFamilyMethods};
 use crate::calculus::binary_predicates::{BinaryPredicate, BinaryPredicates};
 use crate::calculus::bp_term_details::BPTerms;
+use crate::knowledge::properties::Property;
 
 // ---------------------------------------------------------------------------
 // Global constants for family and predicate indices
@@ -113,7 +114,7 @@ impl UniversalRelation {
         _family: &BpFamily,
         n: u8,
         bp_registry: &mut Vec<BinaryPredicate>,
-        _property_registry: &[()],
+        _property_registry: &[Property],
     ) {
         if n == 1 {
             // Create open term details (no kind restriction).
@@ -188,7 +189,7 @@ impl UniversalRelation {
         _inference_families: &[crate::knowledge::inferences::InferenceFamily],
         _inferences: &mut Vec<crate::knowledge::inferences::Inference>,
         _property_inferences: &mut Vec<crate::knowledge::property_inferences::PropertyInferenceData>,
-        _constructors: &[()],
+        _constructors: &[Property],
     ) -> bool {
         false
     }

@@ -39,22 +39,14 @@ pub fn get_noun(k: &Kind) -> &'static str {
 ///
 /// Corresponds to `Kinds::Behaviour::get_range_number` in Using Kinds.w lines 25-28.
 pub fn get_range_number(k: &Kind) -> i32 {
-    k.construct.class_number
+    k.mutable_state.class_number
 }
 
 /// Set the range number for a kind.
 ///
 /// Corresponds to `Kinds::Behaviour::set_range_number` in Using Kinds.w lines 30-33.
 pub fn set_range_number(k: &mut Kind, r: i32) {
-    // SAFETY: We need to mutate the static constructor. In the C reference,
-    // the constructor is stored in a mutable location. Here we use pointer
-    // mutation since KindConstructors are stored in LazyLock statics.
-    // This is safe because we only mutate fields that are designed to be
-    // mutable at runtime (class_number is a per-kind-instance field in C).
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).class_number = r;
-    }
+    k.mutable_state.class_number = r;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +224,7 @@ pub fn is_uncertainly_defined(k: &Kind) -> bool {
 ///
 /// Corresponds to `Kinds::Behaviour::is_an_enumeration` in Using Kinds.w lines 152-155.
 pub fn is_an_enumeration(k: &Kind) -> bool {
-    k.construct.enumeration
+    k.mutable_state.enumeration
 }
 
 /// Convert K to a unit kind. Returns true if successful or already a unit.
@@ -243,15 +235,11 @@ pub fn is_an_enumeration(k: &Kind) -> bool {
 /// Corresponds to `Kinds::Behaviour::convert_to_unit` in Using Kinds.w lines 162-165.
 pub fn convert_to_unit(k: &mut Kind) -> bool {
     // If already an enumeration, cannot convert to unit
-    if k.construct.enumeration {
+    if k.mutable_state.enumeration {
         return false;
     }
     // Mark as arithmetic (unit kinds are arithmetic)
-    // SAFETY: Same pattern as set_range_number — mutating the static constructor.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).arithmetic = true;
-    }
+    k.mutable_state.arithmetic = true;
     true
 }
 
@@ -259,22 +247,14 @@ pub fn convert_to_unit(k: &mut Kind) -> bool {
 ///
 /// Corresponds to `Kinds::Behaviour::convert_to_enumeration` in Using Kinds.w lines 170-172.
 pub fn convert_to_enumeration(k: &mut Kind) {
-    // SAFETY: Mutating the static constructor's enumeration flag.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).enumeration = true;
-    }
+    k.mutable_state.enumeration = true;
 }
 
 /// Convert K to use real arithmetic.
 ///
 /// Corresponds to `Kinds::Behaviour::convert_to_real` in Using Kinds.w lines 177-179.
 pub fn convert_to_real(k: &mut Kind) {
-    // SAFETY: Mutating the static constructor's arithmetic flag.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).arithmetic = true;
-    }
+    k.mutable_state.arithmetic = true;
 }
 
 /// Create a new enumerated value for K. Returns the next free value index.
@@ -283,13 +263,9 @@ pub fn convert_to_real(k: &mut Kind) {
 ///
 /// Corresponds to `Kinds::Behaviour::new_enumerated_value` in Using Kinds.w lines 186-190.
 pub fn new_enumerated_value(k: &mut Kind) -> i32 {
-    // SAFETY: Mutating the static constructor's next_free_value field.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        let val = (*con_ptr).next_free_value;
-        (*con_ptr).next_free_value += 1;
-        val
-    }
+    let val = k.mutable_state.next_free_value;
+    k.mutable_state.next_free_value += 1;
+    val
 }
 
 // ---------------------------------------------------------------------------
@@ -301,18 +277,14 @@ pub fn new_enumerated_value(k: &mut Kind) -> i32 {
 ///
 /// Corresponds to `Kinds::Behaviour::set_superkind_set_at` in Using Kinds.w lines 198-201.
 pub fn set_superkind_set_at(k: &mut Kind, s: Option<usize>) {
-    // SAFETY: Mutating the static constructor's superkind_set_at field.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).superkind_set_at = s;
-    }
+    k.mutable_state.superkind_set_at = s;
 }
 
 /// Get where the superkind was set.
 ///
 /// Corresponds to `Kinds::Behaviour::get_superkind_set_at` in Using Kinds.w lines 203-206.
 pub fn get_superkind_set_at(k: &Kind) -> Option<usize> {
-    k.construct.superkind_set_at
+    k.mutable_state.superkind_set_at
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +299,7 @@ pub fn get_superkind_set_at(k: &Kind) -> Option<usize> {
 ///
 /// Corresponds to `Kinds::Behaviour::has_named_constant_values` in Using Kinds.w lines 214-219.
 pub fn has_named_constant_values(k: &Kind) -> bool {
-    k.construct.enumeration || k.construct.is_incompletely_defined
+    k.mutable_state.enumeration || k.construct.is_incompletely_defined
 }
 
 /// Get the constant compilation method for K.
@@ -362,7 +334,7 @@ pub fn get_comparison_routine(k: &Kind) -> Option<&'static str> {
 ///
 /// Corresponds to `Kinds::Behaviour::is_quasinumerical` in Using Kinds.w lines 255-258.
 pub fn is_quasinumerical(k: &Kind) -> bool {
-    k.construct.arithmetic
+    k.mutable_state.arithmetic
 }
 
 /// Get the dimensional form of K.
@@ -380,18 +352,14 @@ pub fn get_dimensional_form(k: &Kind) -> Option<&UnitSequence> {
 ///
 /// Corresponds to `Kinds::Behaviour::test_if_derived` in Using Kinds.w lines 267-270.
 pub fn test_if_derived(k: &Kind) -> bool {
-    k.construct.dimensional_form_fixed
+    k.mutable_state.dimensional_form_fixed
 }
 
 /// Mark K as derived (fix the dimensional form).
 ///
 /// Corresponds to `Kinds::Behaviour::now_derived` in Using Kinds.w lines 272-275.
 pub fn now_derived(k: &mut Kind) {
-    // SAFETY: Mutating the static constructor's dimensional_form_fixed field.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).dimensional_form_fixed = true;
-    }
+    k.mutable_state.dimensional_form_fixed = true;
 }
 
 /// Get the scale factor for K.
@@ -401,7 +369,7 @@ pub fn now_derived(k: &mut Kind) {
 ///
 /// Corresponds to `Kinds::Behaviour::scale_factor` in Using Kinds.w lines 277-286.
 pub fn scale_factor(k: &Kind) -> i32 {
-    k.construct.class_number
+    k.mutable_state.class_number
 }
 
 /// Get the dimensional rules for K.
@@ -486,18 +454,14 @@ pub fn can_exchange(k: &Kind) -> bool {
 ///
 /// Corresponds to `Kinds::Behaviour::get_documentation_reference` in Using Kinds.w lines 357-360.
 pub fn get_documentation_reference(k: &Kind) -> Option<&'static str> {
-    k.construct.documentation_reference
+    k.mutable_state.documentation_reference
 }
 
 /// Set the documentation reference for K.
 ///
 /// Corresponds to `Kinds::Behaviour::set_documentation_reference` in Using Kinds.w lines 362-365.
 pub fn set_documentation_reference(k: &mut Kind, dr: &'static str) {
-    // SAFETY: Mutating the static constructor's documentation_reference field.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).documentation_reference = Some(dr);
-    }
+    k.mutable_state.documentation_reference = Some(dr);
 }
 
 /// Get the index default value for K.
@@ -539,18 +503,14 @@ pub fn indexed_grey_if_empty(k: &Kind) -> bool {
 ///
 /// Corresponds to `Kinds::Behaviour::set_specification_text` in Using Kinds.w lines 400-403.
 pub fn set_specification_text(k: &mut Kind, desc: &'static str) {
-    // SAFETY: Mutating the static constructor's specification_text field.
-    let con_ptr = k.construct as *const _ as *mut crate::kind_constructors::KindConstructor;
-    unsafe {
-        (*con_ptr).specification_text = Some(desc);
-    }
+    k.mutable_state.specification_text = Some(desc);
 }
 
 /// Get the specification text for K.
 ///
 /// Corresponds to `Kinds::Behaviour::get_specification_text` in Using Kinds.w lines 405-408.
 pub fn get_specification_text(k: &Kind) -> Option<&'static str> {
-    k.construct.specification_text
+    k.mutable_state.specification_text
 }
 
 // ---------------------------------------------------------------------------

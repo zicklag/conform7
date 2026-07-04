@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 conform7-syntax = { path = "../conform7-syntax" }
+parking_lot = "0.12"

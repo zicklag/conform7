@@ -11,6 +11,7 @@
 /// These are the first concrete uses of the binary predicate system.
 use crate::calculus::binary_predicate_families::{BpFamily, BpFamilyMethods};
 use crate::calculus::binary_predicates::{BinaryPredicate, BinaryPredicates};
+use crate::knowledge::properties::Property;
 use crate::calculus::bp_term_details::BPTerms;
 
 // ---------------------------------------------------------------------------
@@ -89,8 +90,7 @@ impl EqualityRelation {
     /// Stock the equality family (stage 1): create R_equality.
     ///
     /// Corresponds to `Calculus::Equality::stock` in the C reference
-    /// (`services/calculus-module/Chapter 3/The Equality Relation.w`, lines 52-58).
-    pub fn stock(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[()]) {
+    pub fn stock(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[Property]) {
         if n == 1 {
             let family_idx = 0; // equality family is at index 0
             let idx = BinaryPredicates::make_equality(family_idx, "equality", bp_registry);
@@ -104,8 +104,7 @@ impl EqualityRelation {
     /// Stock the spatial family (stage 1): create a_has_b_predicate.
     ///
     /// Corresponds to `Calculus::Equality::stock_spatial` in the C reference
-    /// (`services/calculus-module/Chapter 3/The Equality Relation.w`, lines 60-70).
-    pub fn stock_spatial(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[()]) {
+    pub fn stock_spatial(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[Property]) {
         if n == 1 {
             let family_idx = 1; // spatial family is at index 1
             let left_term = BPTerms::new_full(None, None, None, None);
@@ -127,8 +126,7 @@ impl EqualityRelation {
     /// Stock the empty family (stage 1): create R_empty.
     ///
     /// Corresponds to `Calculus::Equality::stock_empty` in the C reference
-    /// (`services/calculus-module/Chapter 3/The Equality Relation.w`, lines 72-78).
-    pub fn stock_empty(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[()]) {
+    pub fn stock_empty(_family: &BpFamily, n: u8, bp_registry: &mut Vec<BinaryPredicate>, _property_registry: &[Property]) {
         if n == 1 {
             let family_idx = 2; // empty family is at index 2
             let idx = BinaryPredicates::make_equality(family_idx, "never-holding", bp_registry);

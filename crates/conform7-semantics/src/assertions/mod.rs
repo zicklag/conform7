@@ -34,6 +34,8 @@
 //! | [`tables`] | `Chapter 2/Tables.w` | Table creation from TABLE_NT nodes |
 //! | [`equations`] | `Chapter 2/Equations.w` | Equation creation from EQUATION_NT nodes |
 //! | [`property_sentences`] | `Chapter 2/Property Sentences.w` | Property creation detection in sentences |
+//! | [`refiner`] | `Chapter 4/Refine Parse Tree.w` | Parse tree refinement for assertion processing |
+//! | [`creator`] | `Chapter 4/The Creator.w` | Object/kind creation from assertions |
 //!
 //! # References
 //!
@@ -44,7 +46,8 @@
 //! - C reference: `inform7/assertions-module/Chapter 8/Adjectives by Condition.w`
 //! - C reference: `inform7/assertions-module/Chapter 8/Adjectives by Inter Function.w`
 //! - C reference: `inform7/assertions-module/Chapter 8/Adjectives by Inter Condition.w`
-//! - C reference: `inform7/assertions-module/Chapter 5/Rule Family.w`
+//! - C reference: `inform7/assertions-module/Chapter 4/Refine Parse Tree.w`
+//! - C reference: `inform7/assertions-module/Chapter 4/The Creator.w`
 
 pub mod imperative_definition_families;
 

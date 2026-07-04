@@ -408,6 +408,49 @@ impl ParseNode {
         }
         self.children().any(|child| child.contains(other))
     }
+    /// Replace this node's content with its first child.
+    ///
+    /// The first child's type, wording, children, and annotations are moved into
+    /// this node. The child is removed from the tree.
+    pub fn replace_with_first_child(&mut self) {
+        if let Some(mut child) = self.down.take() {
+            self.node_type = child.node_type;
+            self.wording = child.wording;
+            self.annotations = std::mem::take(&mut child.annotations);
+            self.down = child.down.take();
+            self.next = child.next.take();
+            self.next_alternative = child.next_alternative.take();
+        }
+    }
+
+    /// Take all children from this node, returning them as a Vec.
+    ///
+    /// The node's `down` pointer is set to `None`. The caller is responsible
+    /// for re-attaching children via [`set_children`](Self::set_children).
+    pub fn take_children(&mut self) -> Vec<Box<ParseNode>> {
+        let mut result = Vec::new();
+        let mut child = self.down.take();
+        while let Some(mut boxed) = child {
+            let next = boxed.next.take();
+            result.push(boxed);
+            child = next;
+        }
+        result
+    }
+
+    /// Set the children of this node from a Vec.
+    ///
+    /// The children are linked in the order they appear in the Vec. The
+    /// node's previous children (if any) are dropped.
+    pub fn set_children(&mut self, children: Vec<Box<ParseNode>>) {
+        let mut prev: Option<Box<ParseNode>> = None;
+        for child in children.into_iter().rev() {
+            let mut node = child;
+            node.next = prev;
+            prev = Some(node);
+        }
+        self.down = prev;
+    }
     /// Check if this node represents a purely textual sentence (just quoted text).
     pub fn is_textual(&self) -> bool {
         // Simplified: a node is textual if it has no children and its wording

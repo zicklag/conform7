@@ -18,8 +18,8 @@
 //!   special_meaning_holder struct and creation.
 
 use crate::linguistic_constants::{
-    ACTIVE_VOICE, IS_TENSE, PASSIVE_VOICE, PLURAL_NUMBER, POSITIVE_SENSE, SINGULAR_NUMBER,
-    THIRD_PERSON, Lcon,
+    ACTIVE_VOICE, IS_TENSE, NEGATIVE_SENSE, PASSIVE_VOICE, PLURAL_NUMBER, POSITIVE_SENSE,
+    SINGULAR_NUMBER, THIRD_PERSON, Lcon,
 };
 use crate::stock_control::{GrammaticalUsageRef, LinguisticStockItemRef, Stock};
 use crate::verb_conjugation::{Conjugation, VerbConjugation};
@@ -1202,12 +1202,20 @@ impl Verbs {
         let vc_idx = self.verbs[verb]
             .conjugation
             .expect("verb must have a conjugation");
-        let active_3s = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+        let active_3s_pos = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
             [IS_TENSE as usize][POSITIVE_SENSE as usize]
             [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
             .clone();
-        let active_3p = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+        let active_3p_pos = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
             [IS_TENSE as usize][POSITIVE_SENSE as usize]
+            [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
+            .clone();
+        let active_3s_neg = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+            [IS_TENSE as usize][NEGATIVE_SENSE as usize]
+            [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
+            .clone();
+        let active_3p_neg = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+            [IS_TENSE as usize][NEGATIVE_SENSE as usize]
             [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
             .clone();
 
@@ -1222,8 +1230,13 @@ impl Verbs {
         let item = self.stock.add_item(cat, Box::new(verb));
         let gu = self.stock.new_usage(item, "English");
 
-        // Active voice: present tense 3rd person singular and plural
-        let forms = [(active_3s, 0u32), (active_3p, 0u32)];
+        // Active voice: present tense 3rd person singular and plural (positive and negative)
+        let forms = [
+            (active_3s_pos.clone(), 0u32),
+            (active_3p_pos.clone(), 0u32),
+            (active_3s_neg.clone(), 0u32),
+            (active_3p_neg.clone(), 0u32),
+        ];
 
         for (wa, _bits) in &forms {
             if let Some(vu) = self.new_usage(wa.clone(), false, gu, None) {
@@ -1231,17 +1244,25 @@ impl Verbs {
             }
         }
 
-        // For non-copular verbs, also register passive voice forms
+        // For non-copular verbs, also register passive voice forms (positive and negative)
         if !copular {
-            let passive_3s = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+            let passive_3s_pos = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
                 [IS_TENSE as usize][POSITIVE_SENSE as usize]
                 [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
                 .clone();
-            let passive_3p = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+            let passive_3p_pos = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
                 [IS_TENSE as usize][POSITIVE_SENSE as usize]
                 [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
                 .clone();
-            let passive_forms = [passive_3s, passive_3p];
+            let passive_3s_neg = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+                [IS_TENSE as usize][NEGATIVE_SENSE as usize]
+                [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
+                .clone();
+            let passive_3p_neg = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+                [IS_TENSE as usize][NEGATIVE_SENSE as usize]
+                [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
+                .clone();
+            let passive_forms = [passive_3s_pos, passive_3p_pos, passive_3s_neg, passive_3p_neg];
             for wa in &passive_forms {
                 if let Some(vu) = self.new_usage(wa.clone(), false, gu, None) {
                     self.add_usage_to_tier(vu, tier);
@@ -1308,7 +1329,7 @@ impl Verbs {
             .position(|sm| sm.sm_name == "verb-means")
             .expect("verb-means special meaning should exist");
         let meaning = VerbMeaning::special(verb_means_sm);
-        self.add_form(to_mean, None, None, meaning, 0);
+        self.add_form(to_mean, None, None, meaning, SVO_FS_BIT);
 
         (to_be, to_mean)
     }

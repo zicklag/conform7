@@ -87,8 +87,8 @@ impl MajorNodes {
         tree.traverse_mut(&mut |node| {
             Self::visit(node, 2);
         });
-        // Post-traversal: deduce object instance kinds (stub)
-        // World::deduce_object_instance_kinds() — deferred
+        // Post-traversal: deduce object instance kinds
+        crate::knowledge::world::World::deduce_object_instance_kinds()
     }
 
     #[allow(clippy::collapsible_match)]

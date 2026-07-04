@@ -289,6 +289,48 @@ pub fn make_built_in(subjects: &mut Vec<InferenceSubject>) -> [usize; 4] {
     let relations = InferenceSubject::new_fundamental_in(Some(model_world), "relations", subjects);
     [model_world, global_variables, global_constants, relations]
 }
+ 
+ /// Dispatch methods for inference subjects.
+ ///
+ /// Provides `complete_model` and `check_model` dispatch to the
+ /// appropriate family method for a given subject.
+ pub struct InferenceSubjects;
+ 
+ impl InferenceSubjects {
+     /// Call `complete_model` on the family of the subject at `idx`.
+     ///
+     /// Corresponds to the model completion dispatch in the C reference
+     /// (`inform7/knowledge-module/Chapter 4/Inference Subjects.w`).
+     pub fn complete_model(
+         idx: usize,
+         subjects: &mut [InferenceSubject],
+         families: &[InferenceSubjectFamily],
+     ) {
+         if idx < subjects.len() {
+             let family_idx = subjects[idx].infs_family;
+             if family_idx < families.len() {
+                 (families[family_idx].methods.complete_model)(&subjects[idx]);
+             }
+         }
+     }
+ 
+     /// Call `check_model` on the family of the subject at `idx`.
+     ///
+     /// Corresponds to the model checking dispatch in the C reference
+     /// (`inform7/knowledge-module/Chapter 4/Inference Subjects.w`).
+     pub fn check_model(
+         idx: usize,
+         subjects: &mut [InferenceSubject],
+         families: &[InferenceSubjectFamily],
+     ) {
+         if idx < subjects.len() {
+             let family_idx = subjects[idx].infs_family;
+             if family_idx < families.len() {
+                 (families[family_idx].methods.check_model)(&subjects[idx]);
+             }
+         }
+     }
+ }
 
 #[cfg(test)]
 mod tests {

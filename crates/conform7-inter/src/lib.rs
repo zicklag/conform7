@@ -58,6 +58,7 @@
 
 
 pub mod instruction;
+pub mod emit;
 pub mod textual;
 pub mod tree;
 pub mod types;
@@ -65,6 +66,6 @@ pub mod value;
 
 // Re-export key types so consumers only need `use conform7_inter::*`
 pub use instruction::{ConstructId, Instruction};
-pub use tree::{InterTree, Package, PackageType, Symbol, SymbolType, SymbolsTable, WiringTarget};
+pub use tree::{InterTree, Package, PackageRef, PackageType, Symbol, SymbolType, SymbolsTable, WiringTarget};
 pub use types::{InterType, Tid, TypeConstructor};
 pub use value::{InterValue, ValueFormat};

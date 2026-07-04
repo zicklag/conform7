@@ -1,0 +1,7 @@
+[package]
+name = "conform7-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+conform7-inter = { path = "../conform7-inter" }

@@ -794,7 +794,95 @@ impl InterTree {
         }
         Some(current)
     }
+
+    /// Declare a new symbol in a package's symbols table.
+    ///
+    /// Returns the symbol ID. The symbol type is set to the given `symbol_type`.
+    pub fn declare_symbol(&mut self, package: PackageRef, name: &str, symbol_type: SymbolType) -> u32 {
+        let pkg = self.find_package_mut_by_id(package)
+            .expect("package not found");
+        let sym = pkg.symbols.create_symbol(name);
+        sym.symbol_type = symbol_type;
+        sym.id
+    }
 }
+
+
+/// Find the path (as a `/`-separated URL) from root to a package by ID.
+///
+/// This is used as a two-phase lookup: first find the path (immutable),
+/// then navigate mutably using the path. This avoids the borrow checker
+/// issues with recursive `&mut` traversal.
+fn find_package_path_by_id(id: PackageRef, current: &Package) -> Option<String> {
+    if current.resource_id == id {
+        return Some(String::new());
+    }
+    for (name, child) in &current.children {
+        if let Some(path) = find_package_path_by_id(id, child) {
+            if path.is_empty() {
+                return Some(name.clone());
+            }
+            return Some(format!("{}/{}", name, path));
+        }
+    }
+    None
+}
+
+impl InterTree {
+    /// Find a package by its resource ID.
+    ///
+    /// Uses a two-phase approach: first find the path (immutable), then
+    /// navigate by path (mutable). This avoids borrow checker issues with
+    /// recursive `&mut` traversal.
+    pub fn find_package_mut_by_id(&mut self, id: PackageRef) -> Option<&mut Package> {
+        let path = find_package_path_by_id(id, &self.root)?;
+        if path.is_empty() {
+            return Some(&mut self.root);
+        }
+        self.find_package_mut(&format!("/{}", path))
+    }
+
+    /// Create a child package of the given parent.
+    ///
+    /// Returns the new package's resource ID (PackageRef).
+    pub fn create_child_package(&mut self, parent: PackageRef, name: &str, pkg_type: &str) -> PackageRef {
+        let pkg_type = PackageType::from_keyword(pkg_type);
+        let child = Package::new(
+            self.alloc_resource_id(),
+            name.to_string(),
+            pkg_type,
+            self.next_symbol_id.clone(),
+        );
+        let child_id = child.resource_id;
+        let parent_pkg = self.find_package_mut_by_id(parent)
+            .expect("parent package not found");
+        parent_pkg.add_child(child);
+        child_id
+    }
+
+    /// Find a package by path components.
+    ///
+    /// For example, `["main", "source_text", "kinds"]` finds the kinds package.
+    pub fn find_package_by_path(&self, path: &[&str]) -> Option<u32> {
+        let mut current = &self.root;
+        // Skip empty path (return root)
+        if path.is_empty() {
+            return Some(current.resource_id);
+        }
+        for part in path {
+            current = current.get_child(part)?;
+        }
+        Some(current.resource_id)
+    }
+
+    /// Append an instruction to a package by its resource ID.
+    pub fn add_instruction(&mut self, package: PackageRef, instr: Instruction) {
+        let pkg = self.find_package_mut_by_id(package)
+            .expect("package not found");
+        pkg.add_instruction(instr);
+    }
+}
+
 
 impl Default for InterTree {
     fn default() -> Self {
@@ -804,6 +892,9 @@ impl Default for InterTree {
 
 // ---------------------------------------------------------------------------
 // Tests
+
+/// A reference to a package, identified by its resource ID.
+pub type PackageRef = u32;
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -925,5 +1016,66 @@ mod tests {
         );
         pkg.add_child(child1);
         pkg.add_child(child2);
+    }
+
+    #[test]
+    fn test_declare_symbol() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        let sym_id = tree.declare_symbol(main, "my_constant", SymbolType::Constant);
+        let pkg = tree.find_package("/main").unwrap();
+        let sym = pkg.symbols.get(sym_id).unwrap();
+        assert_eq!(sym.name, "my_constant");
+        assert_eq!(sym.symbol_type, SymbolType::Constant);
+    }
+
+    #[test]
+    fn test_create_child_package() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        let child_id = tree.create_child_package(main, "sub", "_module");
+        let child = tree.find_package("/main/sub").unwrap();
+        assert_eq!(child.name, "sub");
+        assert_eq!(child.package_type, PackageType::Module);
+        assert_eq!(child.resource_id, child_id);
+    }
+
+    #[test]
+    fn test_find_package_by_path() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+        let _child = tree.create_child_package(main, "sub", "_plain");
+
+        let id = tree.find_package_by_path(&["main", "sub"]);
+        assert!(id.is_some());
+        let root_id = tree.find_package_by_path(&[]);
+        assert_eq!(root_id, Some(1u32)); // root has resource_id 1
+    }
+
+    #[test]
+    fn test_find_package_mut_by_id() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+        let child = tree.create_child_package(main, "sub", "_plain");
+
+        let found = tree.find_package_mut_by_id(child);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "sub");
+
+        let not_found = tree.find_package_mut_by_id(9999);
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_add_instruction() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+        let instr = Instruction::new(ConstructId::Nop);
+        tree.add_instruction(main, instr);
+
+        let pkg = tree.find_package("/main").unwrap();
+        assert_eq!(pkg.items.len(), 1);
     }
 }

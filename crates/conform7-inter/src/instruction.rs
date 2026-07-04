@@ -327,6 +327,27 @@ impl Instruction {
         Self { construct, words: vec![construct as u32], depth: 0, type_marker: None }
     }
 
+    /// Create a `constant` instruction.
+    ///
+    /// Frame layout: `[CONSTANT_IST, SYMBOL_ID, VALUE_FORMAT, VALUE_CONTENT]`
+    /// The `type_marker` is not set by this constructor; callers may set it
+    /// directly if a type annotation is needed for textual output.
+    pub fn constant(symbol_id: u32, format: u32, content: u32) -> Self {
+        let mut instr = Self::new(ConstructId::Constant);
+        instr.set_field(1, symbol_id);
+        instr.set_field(2, format);
+        instr.set_field(3, content);
+        instr
+    }
+
+    /// Create a `pragma` instruction.
+    ///
+    /// Frame layout: `[PRAGMA_IST, STRING_ID]`
+    /// The `string_id` should be an interned warehouse string ID.
+    pub fn pragma(string_id: u32) -> Self {
+        Self::with_words(ConstructId::Pragma, vec![string_id])
+    }
+
     /// Create an instruction with a pre-built frame.
     ///
     /// The construct ID is automatically inserted as word 0. The provided
@@ -493,5 +514,23 @@ mod tests {
     fn test_unknown_construct() {
         assert!(ConstructId::from_u32(99).is_none());
         assert!(ConstructId::from_keyword("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_instruction_constant() {
+        let instr = Instruction::constant(0x40000001, 0x10000, 42);
+        assert_eq!(instr.construct, ConstructId::Constant);
+        assert_eq!(instr.extent(), 4);
+        assert_eq!(instr.field(1), Some(0x40000001));
+        assert_eq!(instr.field(2), Some(0x10000));
+        assert_eq!(instr.field(3), Some(42));
+    }
+
+    #[test]
+    fn test_instruction_pragma() {
+        let instr = Instruction::pragma(123);
+        assert_eq!(instr.construct, ConstructId::Pragma);
+        assert_eq!(instr.extent(), 2);
+        assert_eq!(instr.field(1), Some(123));
     }
 }

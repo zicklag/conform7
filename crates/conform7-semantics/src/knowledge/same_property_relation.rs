@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_stock_skips_stage_1() {
-        let (mut families, mut bp_registry) = SameAsRelations::start();
+        let (families, mut bp_registry) = SameAsRelations::start();
         let properties = vec![make_valued_property("height")];
 
         let prop_reg = cast_property_registry(&properties);

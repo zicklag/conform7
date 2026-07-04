@@ -83,44 +83,44 @@ pub static CON_POINTER_VALUE: LazyLock<KindConstructor> = LazyLock::new(|| {
 
 /// The `value` kind — top of the indefinite kind hierarchy.
 pub static K_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_VALUE)
+    Kind::base_construction(&CON_VALUE)
 });
 
 /// The `stored value` kind — values that can be stored in memory.
 pub static K_stored_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_STORED_VALUE)
+    Kind::base_construction(&CON_STORED_VALUE)
 });
 
 /// The `sayable value` kind — values that can be printed.
 pub static K_sayable_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_SAYABLE_VALUE)
+    Kind::base_construction(&CON_SAYABLE_VALUE)
 });
 
 /// The `understandable value` kind — values that can be understood from
 /// player input.
 pub static K_understandable_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_UNDERSTANDABLE_VALUE)
+    Kind::base_construction(&CON_UNDERSTANDABLE_VALUE)
 });
 
 /// The `arithmetic value` kind — values that support arithmetic operations.
 pub static K_arithmetic_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_ARITHMETIC_VALUE)
+    Kind::base_construction(&CON_ARITHMETIC_VALUE)
 });
 
 /// The `real arithmetic value` kind — values that support real-number
 /// arithmetic.
 pub static K_real_arithmetic_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_REAL_ARITHMETIC_VALUE)
+    Kind::base_construction(&CON_REAL_ARITHMETIC_VALUE)
 });
 
 /// The `enumerated value` kind — values that are enumerations.
 pub static K_enumerated_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_ENUMERATED_VALUE)
+    Kind::base_construction(&CON_ENUMERATED_VALUE)
 });
 
 /// The `pointer value` kind — values that are pointers to objects.
 pub static K_pointer_value: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_POINTER_VALUE)
+    Kind::base_construction(&CON_POINTER_VALUE)
 });
 
 // ---------------------------------------------------------------------------
@@ -176,17 +176,17 @@ pub static CON_KIND_VARIABLE: LazyLock<KindConstructor> = LazyLock::new(|| {
 
 /// The `void` kind — represents no value.
 pub static K_void: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_VOID)
+    Kind::base_construction(&CON_VOID)
 });
 
 /// The `nil` kind — represents nothing (conforms to everything).
 pub static K_nil: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_NIL)
+    Kind::base_construction(&CON_NIL)
 });
 
 /// The `unknown` kind — represents an unknown type.
 pub static K_unknown: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_UNKNOWN)
+    Kind::base_construction(&CON_UNKNOWN)
 });
 
 // ---------------------------------------------------------------------------
@@ -286,42 +286,42 @@ pub static CON_VERB: LazyLock<KindConstructor> = LazyLock::new(|| {
 
 /// The `number` kind — integer values.
 pub static K_number: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_NUMBER)
+    Kind::base_construction(&CON_NUMBER)
 });
 
 /// The `text` kind — string values.
 pub static K_text: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_TEXT)
+    Kind::base_construction(&CON_TEXT)
 });
 
 /// The `object` kind — physical objects in the world model.
 pub static K_object: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_OBJECT)
+    Kind::base_construction(&CON_OBJECT)
 });
 
 /// The `real number` kind — floating-point values.
 pub static K_real_number: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_REAL_NUMBER)
+    Kind::base_construction(&CON_REAL_NUMBER)
 });
 
 /// The `truth state` kind — boolean values (true/false).
 pub static K_truth_state: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_TRUTH_STATE)
+    Kind::base_construction(&CON_TRUTH_STATE)
 });
 
 /// The `table` kind — table values.
 pub static K_table: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_TABLE)
+    Kind::base_construction(&CON_TABLE)
 });
 
 /// The `unicode character` kind — single Unicode character values.
 pub static K_unicode_character: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_UNICODE_CHARACTER)
+    Kind::base_construction(&CON_UNICODE_CHARACTER)
 });
 
 /// The `verb` kind — verb values.
 pub static K_verb: LazyLock<Kind> = LazyLock::new(|| {
-    Kind::base_construction(&*CON_VERB)
+    Kind::base_construction(&CON_VERB)
 });
 
 // ---------------------------------------------------------------------------

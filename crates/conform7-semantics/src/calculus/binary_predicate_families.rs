@@ -19,6 +19,7 @@ pub const DECLINE_TO_MATCH: i8 = -1;
 pub struct BpFamilyMethods {
     /// Stock up on relations (stage 1: built-in essentials; stage 2: one per value property).
     /// Corresponds to STOCK_BPF_MTID.
+    #[allow(clippy::type_complexity)]
     pub stock: Option<fn(&BpFamily, u8, &mut Vec<BinaryPredicate>, &[()])>,
     /// Typecheck the terms of a relation.
     /// Corresponds to TYPECHECK_BPF_MTID.

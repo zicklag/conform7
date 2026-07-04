@@ -252,15 +252,15 @@ mod tests {
 
     #[test]
     fn list_of_numbers_conforms_to_list_of_arithmetic_values() {
-        let list_of_num = Kind::unary_con(&*CON_list_of, (&*K_number).clone());
-        let list_of_arith = Kind::unary_con(&*CON_list_of, (&*K_arithmetic_value).clone());
+        let list_of_num = Kind::unary_con(&CON_list_of, (*K_number).clone());
+        let list_of_arith = Kind::unary_con(&CON_list_of, (*K_arithmetic_value).clone());
         assert!(list_of_num.conforms_to(&list_of_arith));
     }
 
     #[test]
     fn list_of_numbers_does_not_conform_to_list_of_texts() {
-        let list_of_num = Kind::unary_con(&*CON_list_of, (&*K_number).clone());
-        let list_of_text = Kind::unary_con(&*CON_list_of, (&*K_text).clone());
+        let list_of_num = Kind::unary_con(&CON_list_of, (*K_number).clone());
+        let list_of_text = Kind::unary_con(&CON_list_of, (*K_text).clone());
         assert!(!list_of_num.conforms_to(&list_of_text));
     }
 
@@ -458,11 +458,11 @@ mod tests {
 
     #[test]
     fn join_list_of_number_and_list_of_text_is_list_of_value() {
-        let list_of_num = Kind::unary_con(&*CON_list_of, (&*K_number).clone());
-        let list_of_text = Kind::unary_con(&*CON_list_of, (&*K_text).clone());
+        let list_of_num = Kind::unary_con(&CON_list_of, (*K_number).clone());
+        let list_of_text = Kind::unary_con(&CON_list_of, (*K_text).clone());
         let j = join(&list_of_num, &list_of_text);
         // join(number, text) = sayable_value, so join(list of number, list of text) = list of sayable_value
-        let expected = Kind::unary_con(&*CON_list_of, (&*K_sayable_value).clone());
+        let expected = Kind::unary_con(&CON_list_of, (*K_sayable_value).clone());
         assert!(j.unwrap().eq(&expected));
     }
 

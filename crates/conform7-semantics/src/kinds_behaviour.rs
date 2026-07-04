@@ -676,13 +676,13 @@ mod tests {
 
     #[test]
     fn definite_returns_true_for_list_of_numbers() {
-        let list_of_numbers = Kind::unary_con(&*CON_list_of, K_number.clone());
+        let list_of_numbers = Kind::unary_con(&CON_list_of, K_number.clone());
         assert!(definite(&list_of_numbers));
     }
 
     #[test]
     fn definite_returns_false_for_list_of_values() {
-        let list_of_values = Kind::unary_con(&*CON_list_of, K_value.clone());
+        let list_of_values = Kind::unary_con(&CON_list_of, K_value.clone());
         assert!(!definite(&list_of_values));
     }
 
@@ -1056,47 +1056,47 @@ mod tests {
 
     #[test]
     fn definite_works_for_list_of_numbers() {
-        let list_of_numbers = Kind::unary_con(&*CON_list_of, K_number.clone());
+        let list_of_numbers = Kind::unary_con(&CON_list_of, K_number.clone());
         assert!(definite(&list_of_numbers));
     }
 
     #[test]
     fn definite_works_for_list_of_values() {
-        let list_of_values = Kind::unary_con(&*CON_list_of, K_value.clone());
+        let list_of_values = Kind::unary_con(&CON_list_of, K_value.clone());
         assert!(!definite(&list_of_values));
     }
 
     #[test]
     fn involves_var_works_in_nested_kinds() {
         let var = Kind::var_construction(5, None);
-        let list_of_var = Kind::unary_con(&*CON_list_of, var);
+        let list_of_var = Kind::unary_con(&CON_list_of, var);
         assert!(involves_var(&list_of_var, 5));
         assert!(!involves_var(&list_of_var, 3));
     }
 
     #[test]
     fn is_object_works_for_list_of_objects() {
-        let list_of_objects = Kind::unary_con(&*CON_list_of, K_object.clone());
+        let list_of_objects = Kind::unary_con(&CON_list_of, K_object.clone());
         // list of objects is not itself an object
         assert!(!is_object(&list_of_objects));
     }
 
     #[test]
     fn is_kind_of_kind_works_for_proper_kinds() {
-        let list_of_numbers = Kind::unary_con(&*CON_list_of, K_number.clone());
+        let list_of_numbers = Kind::unary_con(&CON_list_of, K_number.clone());
         assert!(!is_kind_of_kind(&list_of_numbers));
     }
 
     #[test]
     fn semidefinite_works_for_list_of_variable() {
         let var = Kind::var_construction(1, None);
-        let list_of_var = Kind::unary_con(&*CON_list_of, var);
+        let list_of_var = Kind::unary_con(&CON_list_of, var);
         assert!(semidefinite(&list_of_var));
     }
 
     #[test]
     fn semidefinite_works_for_list_of_values() {
-        let list_of_values = Kind::unary_con(&*CON_list_of, K_value.clone());
+        let list_of_values = Kind::unary_con(&CON_list_of, K_value.clone());
         assert!(!semidefinite(&list_of_values));
     }
 }

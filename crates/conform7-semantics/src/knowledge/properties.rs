@@ -450,6 +450,7 @@ mod tests {
         );
     }
 
+    #[allow(dead_code)]
     fn test_to_kind_returns_kind_valued_for_valued_with_kind() {
         let mut registry = Vec::new();
         let idx = Properties::create("carrying capacity", false, &mut registry);

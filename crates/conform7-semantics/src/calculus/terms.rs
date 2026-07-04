@@ -120,6 +120,19 @@ impl PcalcTerm {
             }
         }
     }
+    /// Returns true if this is a variable term (not a constant or function).
+    pub fn is_variable(&self) -> bool {
+        self.variable >= 0
+    }
+
+    /// Returns the variable index if this is a variable term.
+    pub fn variable_index(&self) -> Option<usize> {
+        if self.variable >= 0 {
+            Some(self.variable as usize)
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for PcalcTerm {

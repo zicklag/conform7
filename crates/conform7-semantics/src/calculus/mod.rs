@@ -16,6 +16,7 @@
 //! | [`unary_predicates`] | `Chapter 2/Unary Predicates.w` | `UnaryPredicate` struct |
 //! | [`unary_predicate_families`] | `Chapter 2/Unary Predicate Families.w` | `UpFamily` struct with method dispatch |
 //! | [`kind_predicates_revisited`] | `inform7/assertions-module/Chapter 8/Kind Predicates Revisited.w` | Typecheck, assert, and schema for the kind predicate family |
+//! | [`adjectival_predicates`] | `inform7/assertions-module/Chapter 8/The Adjectival Predicates.w` | Adjectival unary predicate family |
 //! | [`bp_term_details`] | `Chapter 3/Binary Predicate Term Details.w` | `BpTermDetails` struct and `BPTerms` functions |
 //! | [`binary_predicates`] | `Chapter 3/Binary Predicates.w` | `BinaryPredicate` struct, creation, reversal, accessors |
 //! | [`binary_predicate_families`] | `Chapter 3/Binary Predicate Families.w` | `BpFamily` struct with method dispatch |
@@ -36,8 +37,10 @@
 //! - C reference: `services/calculus-module/Chapter 3/The Equality Relation.w`
 //! - C reference: `inform7/assertions-module/Chapter 8/The Equality Relation Revisited.w`
 //! - C reference: `inform7/assertions-module/Chapter 8/Kind Predicates Revisited.w`
+//! - C reference: `inform7/assertions-module/Chapter 8/The Adjectival Predicates.w`
 
 pub mod atoms;
+pub mod adjectival_predicates;
 pub mod creation_predicates;
 pub mod kind_predicates;
 pub mod kind_predicates_revisited;

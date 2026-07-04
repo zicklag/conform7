@@ -163,9 +163,9 @@ When a plan is complete, update its status to "Complete", write the next
 `PLAN-(N+1).md` with status "In progress", and update `CURRENT.md` to
 point to the new plan.
 
-### 13. Clean Commit History with `jj`
+### 13. Clean Git Commit History
 
-Use `jj commit` with in-depth descriptions as code is written. Each commit
+Make commits with in-depth descriptions as code is written. Each commit
 should capture a coherent change with a message that explains *what* was
 done and *why*. This keeps the history readable and makes it easy to
 understand the evolution of the codebase.

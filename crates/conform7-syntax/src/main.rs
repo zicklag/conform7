@@ -293,13 +293,10 @@ fn show_viability_map(
     let vm = VerbPhrases::calculate_viability_map(wording, ctx, registry);
 
     println!("    Viability map (0=not verb, 1=verb, 3=negated non-copular):");
-    for i in 0..word_count {
+    for (i, word) in word_texts.iter().enumerate() {
         let score = vm.get(i);
-        if score > 0 {
-            let word = &word_texts[i];
-            if !word.trim().is_empty() {
-                println!("      word {} ({:?}): score={}", i, word, score);
-            }
+        if score > 0 && !word.trim().is_empty() {
+            println!("      word {} ({:?}): score={}", i, word, score);
         }
     }
 }

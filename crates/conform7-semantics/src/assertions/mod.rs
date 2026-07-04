@@ -7,7 +7,9 @@
 //!
 //! The assertions module is initialized as part of the startup sequence:
 //! `KindPredicatesRevisited::start()` (PLAN-40), then
-//! `ImperativeDefinitionFamilies::start()` (this module), then
+//! `ImperativeDefinitionFamilies::start()` (this module) — which wires
+//! `AdjectivalDefinitionFamily` methods (PLAN-46), `ToPhraseFamily` methods
+//! (PLAN-47), and `RuleFamily` methods (PLAN-48), then
 //! `AdjectivesByPhrase::start()` (PLAN-42), then `AdjectivesByCondition::start()` (PLAN-43),
 //! then `AdjectivesByInterFunction::start()` (PLAN-44),
 //! then `AdjectivesByInterCondition::start()` (PLAN-45), etc.
@@ -18,6 +20,8 @@
 //! |--------|-------------|---------|
 //! | [`imperative_definition_families`] | `Chapter 5/Imperative Definition Families.w` | Family dispatch for imperative definitions |
 //! | [`adjectival_definition_family`] | `Chapter 5/Adjectival Definition Family.w` | Adjectival definition family |
+//! | [`to_phrase_family`] | `Chapter 5/To Phrase Family.w` | To phrase definition family |
+//! | [`rule_family`] | `Chapter 5/Rule Family.w` | Rule definition family |
 //! | [`adjectives_by_phrase`] | `Chapter 8/Adjectives by Phrase.w` | Phrase-defined adjectives |
 //! | [`adjectives_by_condition`] | `Chapter 8/Adjectives by Condition.w` | Condition-defined adjectives |
 //! | [`adjectives_by_inter_function`] | `Chapter 8/Adjectives by Inter Function.w` | Inter-routine-defined adjectives |
@@ -40,3 +44,6 @@ pub mod adjectives_by_phrase;
 pub mod adjectives_by_inter_function;
 pub mod adjectives_by_inter_condition;
 pub mod adjectival_definition_family;
+
+pub mod to_phrase_family;
+pub mod rule_family;

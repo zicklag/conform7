@@ -142,10 +142,8 @@ impl EitherOrPropertyAdjectives {
         adj_idx
     }
 
+    #[allow(clippy::too_many_arguments)]
     /// Assert an either-or property adjective on an inference subject.
-    ///
-    /// Corresponds to `EitherOrPropertyAdjectives::assert` in the C reference
-    /// (`inform7/knowledge-module/Chapter 3/Either-Or Property Adjectives.w`, lines 53-59).
     ///
     /// For positive parity (e.g., "the door is open"), calls
     /// `PropertyInferences::draw` with the property name.

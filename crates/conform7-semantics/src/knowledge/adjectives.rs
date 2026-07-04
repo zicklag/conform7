@@ -946,7 +946,7 @@ mod tests {
         let mut data_registry = Vec::new();
 
         // Create a family with an assert method that records its arguments.
-        let assert_fn: fn(usize, usize, bool, &mut [AdjectiveMeaning], &mut [InferenceSubject], &[Property], &[InferenceFamily], &mut Vec<Inference>, &mut Vec<PropertyInferenceData>, &mut [MeasurementDefinition]) -> bool =
+        let assert_fn: AssertFn =
             |am_idx, _subj_idx, parity, _meanings, _subjects, _properties, _families, _inferences, _data_registry, _definitions| {
                 am_idx == 0 && parity
             };
@@ -1015,7 +1015,7 @@ mod tests {
         let mut subjects = Vec::new();
         let mut inferences = Vec::new();
         let mut data_registry = Vec::new();
-        let assert_fn: fn(usize, usize, bool, &mut [AdjectiveMeaning], &mut [InferenceSubject], &[Property], &[InferenceFamily], &mut Vec<Inference>, &mut Vec<PropertyInferenceData>, &mut [MeasurementDefinition]) -> bool =
+        let assert_fn: AssertFn =
             |_am_idx, _subj_idx, parity, _meanings, _subjects, _properties, _families, _inferences, _data_registry, _definitions| parity;
 
         let methods = AdjectiveMeaningFamilyMethods {

@@ -171,6 +171,7 @@ impl Kind {
         (self.kc_args[0].as_deref(), self.kc_args[1].as_deref())
     }
 
+    #[allow(clippy::should_implement_trait)]
     /// Structural equality for kinds.
     ///
     /// Compares constructors (by pointer identity), variable numbers,
@@ -505,7 +506,7 @@ mod tests {
         let k = Kind::var_construction(5, Some(Kind::clone(&K_number)));
         assert_eq!(k.get_variable_number(), 5);
         assert!(k.kc_args[0].is_some());
-        assert!(k.kc_args[0].as_deref().unwrap().eq(&*K_number));
+        assert!(k.kc_args[0].as_deref().unwrap().eq(&K_number));
     }
     #[test]
     fn eq_equal_kinds() {

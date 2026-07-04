@@ -17,6 +17,24 @@ pub struct UnaryPredicate {
     pub unarticled: bool,
     /// Calling name (for calling predicates only).
     pub calling_name: Option<&'static str>,
+    /// Parity — whether this predicate is in positive sense (true) or
+    /// negative sense (false).
+    ///
+    /// Used by the adjectival predicate family to track whether the
+    /// adjective is applied positively (e.g., "open") or negatively
+    /// (e.g., "not open").
+    ///
+    /// Corresponds to the sense stored in `lcon` in the C reference
+    /// (`services/calculus-module/Chapter 2/Unary Predicates.w`).
+    /// Simplified: a bool instead of Lcon sense.
+    pub parity: bool,
+    /// Adjective index in the adjective registry, if this predicate
+    /// represents an adjective.
+    ///
+    /// Used by the adjectival predicate family to identify which adjective
+    /// this predicate refers to. Stored directly instead of encoding in
+    /// `assert_kind` as a leaked string.
+    pub adjective_index: Option<usize>,
 }
 
 impl UnaryPredicate {
@@ -31,6 +49,8 @@ impl UnaryPredicate {
             composited: false,
             unarticled: false,
             calling_name: None,
+            parity: true,
+            adjective_index: None,
         }
     }
 

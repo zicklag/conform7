@@ -18,6 +18,8 @@
 //! | Module | C Reference | Purpose |
 //! |--------|-------------|---------|
 //! | [`adjectival_definition_family`] | `Chapter 5/Adjectival Definition Family.w` | Adjectival definition family |
+//! | [`to_phrase_family`] | `Chapter 5/To Phrase Family.w` | To phrase definition family |
+//! | [`rule_family`] | `Chapter 5/Rule Family.w` | Rule definition family |
 //!
 //! ## References
 //!
@@ -28,6 +30,8 @@
 
 use std::sync::LazyLock;
 use crate::assertions::adjectival_definition_family::AdjectivalDefinitionFamily;
+use crate::assertions::to_phrase_family::ToPhraseFamily;
+use crate::assertions::rule_family::RuleFamily;
 
 /// Methods that can be implemented for an imperative definition family.
 ///
@@ -232,6 +236,12 @@ impl ImperativeDefinitionFamilies {
 ///
 /// Methods for the `adjectival-idf` family are wired during initialization
 /// by `AdjectivalDefinitionFamily::wire_methods` (PLAN-46).
+///
+/// Methods for the `TO_PHRASE_EFF` family are wired during initialization
+/// by `ToPhraseFamily::wire_methods` (PLAN-47).
+///
+/// Methods for the `rule-idf` family are wired during initialization
+/// by `RuleFamily::wire_methods` (PLAN-48).
 pub static BUILTIN_IMP_DEFN_FAMILIES: LazyLock<Vec<ImpDefFamily>> = LazyLock::new(|| {
     let mut families = vec![
         ImpDefFamily::new("unknown-idf", false),
@@ -242,6 +252,12 @@ pub static BUILTIN_IMP_DEFN_FAMILIES: LazyLock<Vec<ImpDefFamily>> = LazyLock::ne
     // Wire methods for the adjectival definition family.
     // Corresponds to AdjectivalDefinitionFamily::create_family() in the C reference.
     AdjectivalDefinitionFamily::wire_methods(&mut families[1]);
+    // Wire methods for the To phrase family.
+    // Corresponds to ToPhraseFamily::create_family() in the C reference.
+    ToPhraseFamily::wire_methods(&mut families[2]);
+    // Wire methods for the rule family.
+    // Corresponds to RuleFamily::create_family() in the C reference.
+    RuleFamily::wire_methods(&mut families[3]);
     families
 });
 

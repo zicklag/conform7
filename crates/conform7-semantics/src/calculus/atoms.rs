@@ -1,6 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use crate::calculus::terms::PcalcTerm;
+use crate::calculus::unary_predicates::UnaryPredicate;
 
 /// Maximum arity for atoms (matching MAX_ATOM_ARITY = 2).
 ///
@@ -169,6 +170,40 @@ impl PcalcProp {
             arity: 2,
             predicate: Some(PredicateRef::Binary(predicate_name)),
             terms: [Some(term0), Some(term1)],
+            quantifier: None,
+            quantification_parameter: 0,
+            next: None,
+        }
+    }
+
+    /// Create an empty proposition (no atoms).
+    ///
+    /// Used as a placeholder or sentinel value.
+    pub fn new_empty() -> Self {
+        PcalcProp {
+            element: AtomElement::Predicate,
+            arity: 0,
+            predicate: None,
+            terms: [None, None],
+            quantifier: None,
+            quantification_parameter: 0,
+            next: None,
+        }
+    }
+
+    /// Create a unary predicate atom from an owned `UnaryPredicate`.
+    ///
+    /// Corresponds to `Atoms::unary_PREDICATE_new` in the C reference
+    /// (`services/calculus-module/Chapter 4/Atomic Propositions.w`, lines 92-120),
+    /// but takes an owned `UnaryPredicate` instead of a string name.
+    ///
+    /// The predicate is stored using a static name derived from the family.
+    pub fn unary_predicate_new_from_up(up: UnaryPredicate, term: PcalcTerm) -> Self {
+        PcalcProp {
+            element: AtomElement::Predicate,
+            arity: 1,
+            predicate: Some(PredicateRef::Unary(up.family.name)),
+            terms: [Some(term), None],
             quantifier: None,
             quantification_parameter: 0,
             next: None,

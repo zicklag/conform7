@@ -328,7 +328,7 @@ mod tests {
         new(&mut con, &mut subjects, &families);
 
         let constructors = vec![con];
-        let k_number = Kind::base_construction(&*CON_NUMBER);
+        let k_number = Kind::base_construction(&CON_NUMBER);
         let infs_idx = from_kind(&k_number, &constructors).unwrap();
         assert_eq!(subjects[infs_idx].log_name, Some("number"));
     }
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn from_kind_returns_none_for_kind_without_subject() {
         let constructors: Vec<KindConstructor> = vec![CON_list_of.clone()];
-        let k_list = Kind::unary_con(&*CON_list_of, Kind::base_construction(&*CON_NUMBER));
+        let k_list = Kind::unary_con(&CON_list_of, Kind::base_construction(&CON_NUMBER));
         let result = from_kind(&k_list, &constructors);
         assert!(result.is_none());
     }
@@ -349,7 +349,7 @@ mod tests {
         new(&mut con, &mut subjects, &families);
 
         let constructors = vec![con];
-        let k_number = Kind::base_construction(&*CON_NUMBER);
+        let k_number = Kind::base_construction(&CON_NUMBER);
         let infs_idx = from_kind(&k_number, &constructors).unwrap();
         let infs = &subjects[infs_idx];
         let kind = to_kind(infs, &subjects, &constructors).unwrap();
@@ -373,21 +373,21 @@ mod tests {
     fn has_properties_true_for_enumeration() {
         let mut con = CON_NUMBER.clone();
         con.enumeration = true;
-        let k = Kind::base_construction(&*CON_NUMBER);
+        let k = Kind::base_construction(&CON_NUMBER);
         let constructors = vec![con];
         assert!(has_properties(&k, &constructors));
     }
 
     #[test]
     fn has_properties_true_for_object_kind() {
-        let k = Kind::base_construction(&*CON_OBJECT);
+        let k = Kind::base_construction(&CON_OBJECT);
         let constructors = vec![CON_OBJECT.clone()];
         assert!(has_properties(&k, &constructors));
     }
 
     #[test]
     fn has_properties_false_for_plain_base_kind() {
-        let k = Kind::base_construction(&*CON_NUMBER);
+        let k = Kind::base_construction(&CON_NUMBER);
         let constructors = vec![CON_NUMBER.clone()];
         assert!(!has_properties(&k, &constructors));
     }
@@ -406,7 +406,7 @@ mod tests {
         new(&mut con_number, &mut subjects, &families);
 
         let constructors = vec![con_real_number, con_number];
-        let k_number = Kind::base_construction(&*CON_NUMBER);
+        let k_number = Kind::base_construction(&CON_NUMBER);
 
         // The super callback should return the broader subject (real number's subject)
         let result = super_callback(&k_number, &subjects, &constructors);
@@ -417,7 +417,7 @@ mod tests {
     fn super_callback_returns_none_for_kind_without_subject() {
         let subjects: Vec<InferenceSubject> = vec![];
         let constructors: Vec<KindConstructor> = vec![CON_list_of.clone()];
-        let k_list = Kind::unary_con(&*CON_list_of, Kind::base_construction(&*CON_NUMBER));
+        let k_list = Kind::unary_con(&CON_list_of, Kind::base_construction(&CON_NUMBER));
         let result = super_callback(&k_list, &subjects, &constructors);
         assert!(result.is_none());
     }
@@ -433,8 +433,8 @@ mod tests {
         new(&mut con_text, &mut subjects, &families);
 
         let constructors = vec![con_number, con_text];
-        let k_number = Kind::base_construction(&*CON_NUMBER);
-        let k_text = Kind::base_construction(&*CON_TEXT);
+        let k_number = Kind::base_construction(&CON_NUMBER);
+        let k_text = Kind::base_construction(&CON_TEXT);
 
         // Move number under text
         let result = move_within_callback(&k_number, &k_text, &mut subjects, &constructors);
@@ -450,8 +450,8 @@ mod tests {
     fn move_within_callback_returns_none_for_kind_without_subject() {
         let mut subjects: Vec<InferenceSubject> = vec![];
         let constructors: Vec<KindConstructor> = vec![CON_list_of.clone()];
-        let k_list = Kind::unary_con(&*CON_list_of, Kind::base_construction(&*CON_NUMBER));
-        let k_number = Kind::base_construction(&*CON_NUMBER);
+        let k_list = Kind::unary_con(&CON_list_of, Kind::base_construction(&CON_NUMBER));
+        let k_number = Kind::base_construction(&CON_NUMBER);
         let result = move_within_callback(&k_list, &k_number, &mut subjects, &constructors);
         assert!(result.is_none());
     }
@@ -467,8 +467,8 @@ mod tests {
         new(&mut con_number, &mut subjects, &families);
 
         let constructors = vec![con_object, con_number];
-        let k_object = Kind::base_construction(&*CON_OBJECT);
-        let k_number = Kind::base_construction(&*CON_NUMBER);
+        let k_object = Kind::base_construction(&CON_OBJECT);
+        let k_number = Kind::base_construction(&CON_NUMBER);
 
         // number is not within the object hierarchy
         assert!(!allow_sometimes_callback(&k_number, &subjects, &constructors));
@@ -481,7 +481,7 @@ mod tests {
     fn allow_sometimes_returns_false_for_kind_without_subject() {
         let subjects: Vec<InferenceSubject> = vec![];
         let constructors: Vec<KindConstructor> = vec![CON_list_of.clone()];
-        let k_list = Kind::unary_con(&*CON_list_of, Kind::base_construction(&*CON_NUMBER));
+        let k_list = Kind::unary_con(&CON_list_of, Kind::base_construction(&CON_NUMBER));
         assert!(!allow_sometimes_callback(&k_list, &subjects, &constructors));
     }
 

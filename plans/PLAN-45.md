@@ -1,6 +1,6 @@
 # Plan 45: Adjectives by Inter Condition — Foundation
 
-**Status**: In progress
+**Status**: Complete
 **Target**: 1 day
 
 ## Goal

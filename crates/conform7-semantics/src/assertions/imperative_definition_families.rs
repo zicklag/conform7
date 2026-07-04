@@ -12,8 +12,22 @@
 //! - No `id_runtime_context_data` — `to_rcd` is a no-op.
 //! - No Preform grammar or Salsa integration.
 //! - No problem messages or I6 compilation.
+//!
+//! ## Module Map
+//!
+//! | Module | C Reference | Purpose |
+//! |--------|-------------|---------|
+//! | [`adjectival_definition_family`] | `Chapter 5/Adjectival Definition Family.w` | Adjectival definition family |
+//!
+//! ## References
+//!
+//! - C reference: `inform7/assertions-module/Chapter 5/Adjectival Definition Family.w`
+//!
+//! The `adjectival_definition_family` module is declared in the parent
+//! `assertions` module, not here. It is a sibling of this module.
 
 use std::sync::LazyLock;
+use crate::assertions::adjectival_definition_family::AdjectivalDefinitionFamily;
 
 /// Methods that can be implemented for an imperative definition family.
 ///
@@ -215,13 +229,20 @@ impl ImperativeDefinitionFamilies {
 /// The order matters: `rule-idf` must come last because
 /// `ImperativeDefinitionFamilies::identify` iterates the list in creation
 /// order and the rule family claims anything not already claimed.
+///
+/// Methods for the `adjectival-idf` family are wired during initialization
+/// by `AdjectivalDefinitionFamily::wire_methods` (PLAN-46).
 pub static BUILTIN_IMP_DEFN_FAMILIES: LazyLock<Vec<ImpDefFamily>> = LazyLock::new(|| {
-    vec![
+    let mut families = vec![
         ImpDefFamily::new("unknown-idf", false),
         ImpDefFamily::new("adjectival-idf", false),
         ImpDefFamily::new("TO_PHRASE_EFF", true),
         ImpDefFamily::new("rule-idf", false),
-    ]
+    ];
+    // Wire methods for the adjectival definition family.
+    // Corresponds to AdjectivalDefinitionFamily::create_family() in the C reference.
+    AdjectivalDefinitionFamily::wire_methods(&mut families[1]);
+    families
 });
 
 /// Return a reference to the `unknown-idf` built-in family.

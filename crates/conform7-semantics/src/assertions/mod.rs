@@ -17,6 +17,7 @@
 //! | Module | C Reference | Purpose |
 //! |--------|-------------|---------|
 //! | [`imperative_definition_families`] | `Chapter 5/Imperative Definition Families.w` | Family dispatch for imperative definitions |
+//! | [`adjectival_definition_family`] | `Chapter 5/Adjectival Definition Family.w` | Adjectival definition family |
 //! | [`adjectives_by_phrase`] | `Chapter 8/Adjectives by Phrase.w` | Phrase-defined adjectives |
 //! | [`adjectives_by_condition`] | `Chapter 8/Adjectives by Condition.w` | Condition-defined adjectives |
 //! | [`adjectives_by_inter_function`] | `Chapter 8/Adjectives by Inter Function.w` | Inter-routine-defined adjectives |
@@ -38,3 +39,4 @@ pub mod adjectives_by_condition;
 pub mod adjectives_by_phrase;
 pub mod adjectives_by_inter_function;
 pub mod adjectives_by_inter_condition;
+pub mod adjectival_definition_family;

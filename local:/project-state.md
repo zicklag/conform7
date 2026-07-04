@@ -19,8 +19,9 @@
 - AdjectivesByPhrase foundation (phrase family, claim_definition, task-mode infrastructure)
 - AdjectivesByCondition foundation (condition family, claim_definition, prepare_schemas)
 - AdjectivesByInterFunction foundation (inter_routine family, claim_definition, template parser)
+- AdjectivesByInterCondition foundation (inter_condition family, claim_definition, template parser)
 
-- 1394 tests
+- 1401 tests
 - `cargo clippy --all-targets` is clean (no new warnings)
 
 ## What's Next

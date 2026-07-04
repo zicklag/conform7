@@ -56,3 +56,4 @@ pub mod equality_details;
 pub mod quasinumeric_relations;
 pub mod universal_relation;
 pub mod explicit_relations;
+pub mod relation_names;

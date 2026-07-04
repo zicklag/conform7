@@ -17,9 +17,12 @@
 //! - C reference: `services/linguistics-module/Chapter 3/Special Meanings.w` —
 //!   special_meaning_holder struct and creation.
 
-use crate::linguistic_constants::Lcon;
+use crate::linguistic_constants::{
+    ACTIVE_VOICE, IS_TENSE, PASSIVE_VOICE, PLURAL_NUMBER, POSITIVE_SENSE, SINGULAR_NUMBER,
+    THIRD_PERSON, Lcon,
+};
 use crate::stock_control::{GrammaticalUsageRef, LinguisticStockItemRef, Stock};
-use crate::verb_conjugation::VerbConjugation;
+use crate::verb_conjugation::{Conjugation, VerbConjugation};
 use crate::word_assemblage::WordAssemblage;
 use std::any::Any;
 
@@ -102,6 +105,8 @@ pub struct Verb {
     pub base_form: Option<VerbFormRef>,
     /// The stock reference for this verb.
     pub in_stock: Option<LinguisticStockItemRef>,
+    /// Whether this verb is copular (a form of "to be").
+    pub copular: bool,
 }
 
 impl Verb {
@@ -116,6 +121,7 @@ impl Verb {
             first_form: None,
             base_form: None,
             in_stock: None,
+            copular: false,
         }
     }
 }
@@ -569,6 +575,7 @@ impl Verbs {
         let verb_index = self.verbs.len();
         let mut verb = Verb::new();
         verb.conjugation = conjugation;
+        verb.copular = copular;
 
         // Create a meaningless base form.
         let meaning = VerbMeaning::meaninglessness();
@@ -1170,6 +1177,141 @@ impl Verbs {
             .iter()
             .position(|c| c.infinitive.eq(infinitive))
     }
+
+    // -----------------------------------------------------------------------
+    // Boot verb creation
+    // -----------------------------------------------------------------------
+
+    /// Register all conjugated forms of a verb as usages in tiers.
+    ///
+    /// Simplified: registers present tense 3rd person forms (singular and plural)
+    /// for both active and passive voice. For copular verbs, no passive forms.
+    ///
+    /// # References
+    ///
+    /// - C reference: `services/linguistics-module/Chapter 3/Verb Usages.w` —
+    ///   `VerbUsages::register_all_usages_of_verb`.
+    pub fn register_all_usages_of_verb(
+        &mut self,
+        verb: VerbRef,
+        _unexpected_upper_casing: bool,
+        priority: i32,
+    ) -> VerbUsageTierRef {
+        // Extract all data upfront to avoid borrow conflicts.
+        let copular = self.verbs[verb].copular;
+        let vc_idx = self.verbs[verb]
+            .conjugation
+            .expect("verb must have a conjugation");
+        let active_3s = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+            [IS_TENSE as usize][POSITIVE_SENSE as usize]
+            [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
+            .clone();
+        let active_3p = self.conjugations[vc_idx].tabulations[ACTIVE_VOICE as usize].vc_text
+            [IS_TENSE as usize][POSITIVE_SENSE as usize]
+            [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
+            .clone();
+
+        let tier = self.new_tier(priority);
+
+        // Create a stock item and grammatical usage for this verb.
+        let cat = if self.stock.categories.is_empty() {
+            self.stock.new_category("verb")
+        } else {
+            0
+        };
+        let item = self.stock.add_item(cat, Box::new(verb));
+        let gu = self.stock.new_usage(item, "English");
+
+        // Active voice: present tense 3rd person singular and plural
+        let forms = [(active_3s, 0u32), (active_3p, 0u32)];
+
+        for (wa, _bits) in &forms {
+            if let Some(vu) = self.new_usage(wa.clone(), false, gu, None) {
+                self.add_usage_to_tier(vu, tier);
+            }
+        }
+
+        // For non-copular verbs, also register passive voice forms
+        if !copular {
+            let passive_3s = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+                [IS_TENSE as usize][POSITIVE_SENSE as usize]
+                [THIRD_PERSON as usize][SINGULAR_NUMBER as usize]
+                .clone();
+            let passive_3p = self.conjugations[vc_idx].tabulations[PASSIVE_VOICE as usize].vc_text
+                [IS_TENSE as usize][POSITIVE_SENSE as usize]
+                [THIRD_PERSON as usize][PLURAL_NUMBER as usize]
+                .clone();
+            let passive_forms = [passive_3s, passive_3p];
+            for wa in &passive_forms {
+                if let Some(vu) = self.new_usage(wa.clone(), false, gu, None) {
+                    self.add_usage_to_tier(vu, tier);
+                }
+            }
+        }
+
+        tier
+    }
+
+    /// Create the bootstrap verbs "to be" and "to mean".
+    ///
+    /// Corresponds to `BootVerbs::make_built_in` in the C reference
+    /// (`inform7/assertions-module/Chapter 2/Booting Verbs.w`).
+    ///
+    /// Returns (to_be_ref, to_mean_ref).
+    pub fn make_built_in(&mut self) -> (VerbRef, VerbRef) {
+        // 1. Declare special meanings
+        let priority1_sms = [
+            "new-relation", "rule-substitutes-for", "rule-does-nothing",
+            "rule-does-nothing-if", "rule-does-nothing-unless",
+            "translates-into-unicode", "translates-into-i6",
+            "translates-into-language", "test-with",
+        ];
+        let priority2_sms = [
+            "new-verb", "new-plural", "new-activity", "new-adjective",
+            "new-either-or", "defined-by-table", "rule-listed-in", "can-be",
+        ];
+        let priority3_sms = ["verb-means"];
+        let priority4_sms = [
+            "specifies-notation", "use-translates", "use",
+            "include-in", "omit-from",
+        ];
+
+        for name in &priority1_sms {
+            self.declare_special_meaning(generic_smf, name, 1);
+        }
+        for name in &priority2_sms {
+            self.declare_special_meaning(generic_smf, name, 2);
+        }
+        for name in &priority3_sms {
+            self.declare_special_meaning(generic_smf, name, 3);
+        }
+        for name in &priority4_sms {
+            self.declare_special_meaning(generic_smf, name, 4);
+        }
+
+        // 2. Conjugate and create "to be" (copular)
+        let be_conj = Conjugation::conjugate(&WordAssemblage::lit_1("be"), "English");
+        let be_idx = self.register_conjugation(be_conj);
+        let to_be = self.new_verb(Some(be_idx), true);
+        self.register_all_usages_of_verb(to_be, false, 2);
+
+        // 3. Conjugate and create "to mean" (non-copular)
+        let mean_conj = Conjugation::conjugate(&WordAssemblage::lit_1("mean"), "English");
+        let mean_idx = self.register_conjugation(mean_conj);
+        let to_mean = self.new_verb(Some(mean_idx), false);
+        self.register_all_usages_of_verb(to_mean, false, 3);
+
+        // 4. Give meaning to mean: attach "verb-means" special meaning
+        let verb_means_sm = self
+            .special_meanings
+            .iter()
+            .position(|sm| sm.sm_name == "verb-means")
+            .expect("verb-means special meaning should exist");
+        let meaning = VerbMeaning::special(verb_means_sm);
+        self.add_form(to_mean, None, None, meaning, 0);
+
+        (to_be, to_mean)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1671,5 +1813,63 @@ mod tests {
         let v = verbs.new_verb(None, false);
         let lcon = verbs.to_lcon(v);
         assert!(lcon.get_id().is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // make_built_in tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn make_built_in_creates_two_verbs() {
+        let mut verbs = Verbs::new();
+        let (to_be, to_mean) = verbs.make_built_in();
+        assert!(verbs.verbs[to_be].copular, "to be should be copular");
+        assert!(!verbs.verbs[to_mean].copular, "to mean should not be copular");
+    }
+
+    #[test]
+    fn make_built_in_declares_special_meanings() {
+        let mut verbs = Verbs::new();
+        verbs.make_built_in();
+        assert!(verbs.special_meanings.iter().any(|sm| sm.sm_name == "verb-means"));
+        assert!(verbs.special_meanings.iter().any(|sm| sm.sm_name == "new-relation"));
+        assert!(verbs.special_meanings.iter().any(|sm| sm.sm_name == "new-verb"));
+        assert!(verbs.special_meanings.iter().any(|sm| sm.sm_name == "use"));
+    }
+    #[test]
+    fn make_built_in_verb_means_attached_to_to_mean() {
+        let mut verbs = Verbs::new();
+        let (_, to_mean) = verbs.make_built_in();
+        let verb = &verbs.verbs[to_mean];
+        // Should have at least one form (the base form + the verb-means form)
+        assert!(verb.first_form.is_some(), "to mean should have forms");
+    }
+
+    #[test]
+    fn make_built_in_registers_usages() {
+        let mut verbs = Verbs::new();
+        verbs.make_built_in();
+        // Should have verb usages registered
+        assert!(!verbs.usages.is_empty(), "should have verb usages");
+        assert!(!verbs.tiers.is_empty(), "should have usage tiers");
+    }
+
+    #[test]
+    fn make_built_in_special_meanings_count() {
+        let mut verbs = Verbs::new();
+        verbs.make_built_in();
+        // 9 + 8 + 1 + 5 = 23 special meanings
+        assert_eq!(verbs.special_meanings.len(), 23);
+    }
+
+    #[test]
+    fn make_built_in_verb_means_has_special_meaning() {
+        let mut verbs = Verbs::new();
+        verbs.make_built_in();
+        // Find the verb-means special meaning
+        let verb_means_idx = verbs.special_meanings.iter()
+            .position(|sm| sm.sm_name == "verb-means")
+            .expect("verb-means should exist");
+        assert_eq!(verbs.special_meanings[verb_means_idx].metadata_n, 3);
     }
 }

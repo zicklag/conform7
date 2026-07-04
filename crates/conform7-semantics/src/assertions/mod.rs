@@ -57,6 +57,7 @@ pub mod anaphora;
 pub mod imperative_subtrees;
 pub mod plugin_calls;
 pub mod tables;
+pub mod tables_cseq;
 pub mod equations;
 pub mod property_sentences;
 pub mod adjectives_by_condition;

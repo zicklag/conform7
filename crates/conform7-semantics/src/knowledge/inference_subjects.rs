@@ -105,6 +105,27 @@ impl InferenceSubject {
         }
     }
 
+    /// Create a new fundamental inference subject and push it into a Vec.
+    ///
+    /// Corresponds to `InferenceSubjects::new_fundamental` in the C reference
+    /// (`inform7/knowledge-module/Chapter 4/Inference Subjects.w`, lines 99-105).
+    ///
+    /// `broader_than_idx` is the index of the broader subject (None for root).
+    /// `log_name` is the debugging log name.
+    /// `subjects` is the Vec to push into.
+    ///
+    /// Returns the index of the newly created subject.
+    pub fn new_fundamental_in(
+        broader_than_idx: Option<usize>,
+        log_name: &'static str,
+        subjects: &mut Vec<InferenceSubject>,
+    ) -> usize {
+        let idx = subjects.len();
+        let subject = InferenceSubject::new_fundamental(broader_than_idx, log_name);
+        subjects.push(subject);
+        idx
+    }
+
     /// Test if this subject is within (contained by) another subject.
     ///
     /// Follows the subject hierarchy upward from this subject to the root,
@@ -246,6 +267,27 @@ impl InferenceSubjectFamily {
             },
         }
     }
+}
+
+/// Create the built-in inference subjects.
+///
+/// Corresponds to `InferenceSubjects::make_built_in` in the C reference
+/// (`inform7/knowledge-module/Chapter 4/Inference Subjects.w`, lines 99-105).
+///
+/// Creates the hierarchy:
+///   model_world (root)
+///       global_variables
+///       global_constants
+///       relations
+///
+/// Returns the indices of the created subjects in order:
+/// [model_world, global_variables, global_constants, relations]
+pub fn make_built_in(subjects: &mut Vec<InferenceSubject>) -> [usize; 4] {
+    let model_world = InferenceSubject::new_fundamental_in(None, "model-world", subjects);
+    let global_variables = InferenceSubject::new_fundamental_in(Some(model_world), "global-variables", subjects);
+    let global_constants = InferenceSubject::new_fundamental_in(Some(model_world), "global-constants", subjects);
+    let relations = InferenceSubject::new_fundamental_in(Some(model_world), "relations", subjects);
+    [model_world, global_variables, global_constants, relations]
 }
 
 #[cfg(test)]
@@ -475,6 +517,50 @@ mod tests {
         assert!(registry[1].is_strictly_within(&registry[0], &registry));
         // Child is not strictly within itself
         assert!(!registry[1].is_strictly_within(&registry[1], &registry));
+    }
+
+    #[test]
+    fn make_built_in_creates_four_subjects() {
+        let mut subjects = Vec::new();
+        let indices = make_built_in(&mut subjects);
+        assert_eq!(subjects.len(), 4);
+        assert_eq!(indices.len(), 4);
+    }
+
+    #[test]
+    fn make_built_in_hierarchy() {
+        let mut subjects = Vec::new();
+        let [mw, gv, gc, rel] = make_built_in(&mut subjects);
+        // model_world is root (no broader)
+        assert!(subjects[mw].broader_than.is_none());
+        // global_variables is child of model_world
+        assert_eq!(subjects[gv].broader_than, Some(mw));
+        // global_constants is child of model_world
+        assert_eq!(subjects[gc].broader_than, Some(mw));
+        // relations is child of model_world
+        assert_eq!(subjects[rel].broader_than, Some(mw));
+    }
+
+    #[test]
+    fn make_built_in_log_names() {
+        let mut subjects = Vec::new();
+        let [mw, gv, gc, rel] = make_built_in(&mut subjects);
+        assert_eq!(subjects[mw].log_name, Some("model-world"));
+        assert_eq!(subjects[gv].log_name, Some("global-variables"));
+        assert_eq!(subjects[gc].log_name, Some("global-constants"));
+        assert_eq!(subjects[rel].log_name, Some("relations"));
+    }
+
+    #[test]
+    fn make_built_in_family() {
+        let mut subjects = Vec::new();
+        let indices = make_built_in(&mut subjects);
+        // All subjects should use the fundamentals family (index 0)
+        for &idx in &indices {
+            assert_eq!(subjects[idx].infs_family, 0,
+                "subject '{}' should use fundamentals family",
+                subjects[idx].log_name.unwrap_or("?"));
+        }
     }
 }
 

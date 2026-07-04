@@ -465,6 +465,33 @@ impl KindConstructor {
     }
 }
 
+/// Create the built-in kind constructors.
+///
+/// Corresponds to `Task::make_built_in_kind_constructors` in the C reference
+/// (`inform7/core-module/Chapter 1/What To Compile.w`, lines 226-229).
+///
+/// Simplified: creates the constructors directly instead of loading from
+/// project data.
+///
+/// Returns the indices of the created constructors in order:
+/// [nil, tuple_entry, intermediate, kind_variable, rval_function,
+///  list_of, description_of, table_of, combination, unchecked, named]
+pub fn make_built_in(constructors: &mut Vec<KindConstructor>) -> [usize; 11] {
+    let nil = { constructors.push(KindConstructor::new("nil", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let tuple_entry = { constructors.push(KindConstructor::new("tuple_entry", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let intermediate = { constructors.push(KindConstructor::new("intermediate", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let kind_variable = { constructors.push(KindConstructor::new("kind_variable", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let rval_function = { constructors.push(KindConstructor::new("rval_function", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let list_of = { constructors.push(KindConstructor::new("list_of", ConstructorGroup::Proper, 1)); constructors.len() - 1 };
+    let description_of = { constructors.push(KindConstructor::new("description_of", ConstructorGroup::Proper, 1)); constructors.len() - 1 };
+    let table_of = { constructors.push(KindConstructor::new("table_of", ConstructorGroup::Proper, 1)); constructors.len() - 1 };
+    let combination = { constructors.push(KindConstructor::new("combination", ConstructorGroup::Proper, 0)); constructors.len() - 1 };
+    let unchecked = { constructors.push(KindConstructor::new("unchecked", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    let named = { constructors.push(KindConstructor::new("named", ConstructorGroup::Punctuation, 0)); constructors.len() - 1 };
+    [nil, tuple_entry, intermediate, kind_variable, rval_function,
+     list_of, description_of, table_of, combination, unchecked, named]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,5 +724,28 @@ mod tests {
         // Overwrite
         con.set_base_as_infs(99);
         assert_eq!(con.get_base_as_infs(), Some(99));
+    }
+
+    #[test]
+    fn make_built_in_creates_eleven_constructors() {
+        let mut constructors = Vec::new();
+        let indices = make_built_in(&mut constructors);
+        assert_eq!(constructors.len(), 11);
+        assert_eq!(indices.len(), 11);
+    }
+
+    #[test]
+    fn make_built_in_constructor_names() {
+        let mut constructors = Vec::new();
+        let indices = make_built_in(&mut constructors);
+        let expected_names = [
+            "nil", "tuple_entry", "intermediate", "kind_variable",
+            "rval_function", "list_of", "description_of", "table_of",
+            "combination", "unchecked", "named",
+        ];
+        for (i, &idx) in indices.iter().enumerate() {
+            assert_eq!(constructors[idx].name, expected_names[i],
+                "constructor {} should have name '{}'", i, expected_names[i]);
+        }
     }
 }

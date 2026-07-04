@@ -106,6 +106,28 @@ impl BinaryPredicateFamilies {
         BpFamily::new(name)
     }
 
+    /// Create all calculus-module BP families and their built-in BPs.
+    ///
+    /// Corresponds to the sequence of `start()` calls in the C reference:
+    /// - `EqualityRelation::start()` (families 0-2)
+    /// - `QuasinumericRelations::start()` (family 3)
+    /// - `UniversalRelation::start()` (family 4)
+    /// - `ExplicitRelations::start()` (families 5-6)
+    ///
+    /// Does NOT include knowledge-module families (provision, same-property,
+    /// setting-property) — those are created separately.
+    ///
+    /// Returns (families, bp_registry) with first_stock already called.
+    pub fn start_all() -> (Vec<BpFamily>, Vec<BinaryPredicate>) {
+        let (mut families, mut bp_registry) = crate::calculus::equality_relation::EqualityRelation::start();
+        crate::calculus::quasinumeric_relations::QuasinumericRelations::start(&mut families, &mut bp_registry);
+        crate::calculus::universal_relation::UniversalRelation::start(&mut families, &mut bp_registry);
+        crate::calculus::explicit_relations::ExplicitRelations::start(&mut families, &mut bp_registry);
+        Self::first_stock(&mut families, &mut bp_registry);
+        (families, bp_registry)
+    }
+
+
     /// Call stock(1) on all families — built-in essentials.
     ///
     /// Corresponds to `BinaryPredicateFamilies::first_stock` in the C reference
@@ -544,5 +566,93 @@ mod tests {
         let bp = registry.into_iter().next().unwrap();
 
         assert!(!BinaryPredicateFamilies::get_schema(1, &bp, &families));
+    }
+}
+
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    #[test]
+    fn start_all_creates_seven_families() {
+        let (families, _) = BinaryPredicateFamilies::start_all();
+        assert_eq!(families.len(), 7);
+        assert_eq!(families[0].name, "equality");
+        assert_eq!(families[1].name, "spatial");
+        assert_eq!(families[2].name, "empty");
+        assert_eq!(families[3].name, "quasinumeric");
+        assert_eq!(families[4].name, "universal");
+        assert_eq!(families[5].name, "explicit");
+        assert_eq!(families[6].name, "by-function");
+    }
+
+    #[test]
+    fn first_stock_creates_sixteen_bps() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        assert_eq!(bp_registry.len(), 16);
+    }
+
+    #[test]
+    fn first_stock_creates_r_equality() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        let r_eq = &bp_registry[0];
+        assert_eq!(r_eq.relation_family, 0);
+        assert!(r_eq.right_way_round);
+        assert_eq!(r_eq.reversal, Some(0));
+    }
+
+    #[test]
+    fn first_stock_creates_spatial_pair() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        let has = &bp_registry[1];
+        assert_eq!(has.relation_family, 1);
+        assert_eq!(has.relation_name.as_deref(), Some("possession"));
+        assert!(has.right_way_round);
+        assert_eq!(has.reversal, Some(2));
+
+        let had = &bp_registry[2];
+        assert_eq!(had.relation_family, 1);
+        assert_eq!(had.relation_name.as_deref(), Some("possession"));
+        assert!(!had.right_way_round);
+        assert_eq!(had.reversal, Some(1));
+    }
+
+    #[test]
+    fn first_stock_creates_r_empty() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        let r_empty = &bp_registry[3];
+        assert_eq!(r_empty.relation_family, 2);
+        assert_eq!(r_empty.relation_name.as_deref(), Some("never-holding"));
+    }
+
+    #[test]
+    fn first_stock_creates_quasinumeric_bps() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        assert_eq!(bp_registry[4].relation_name.as_deref(), Some("greater-than"));
+        assert_eq!(bp_registry[6].relation_name.as_deref(), Some("less-than"));
+        assert_eq!(bp_registry[8].relation_name.as_deref(), Some("at-least"));
+        assert_eq!(bp_registry[10].relation_name.as_deref(), Some("at-most"));
+        for i in [4, 6, 8, 10] {
+            assert_eq!(bp_registry[i].relation_family, 3);
+        }
+    }
+
+    #[test]
+    fn first_stock_creates_universal_bps() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        assert_eq!(bp_registry[12].relation_name.as_deref(), Some("relates"));
+        assert_eq!(bp_registry[14].relation_name.as_deref(), Some("means"));
+        assert_eq!(bp_registry[12].relation_family, 4);
+        assert_eq!(bp_registry[14].relation_family, 4);
+    }
+
+    #[test]
+    fn first_stock_sets_index_details() {
+        let (_, bp_registry) = BinaryPredicateFamilies::start_all();
+        assert_eq!(bp_registry[0].term_details[0].index_term_as.as_deref(), Some("value"));
+        assert_eq!(bp_registry[0].term_details[1].index_term_as.as_deref(), Some("value"));
+        assert_eq!(bp_registry[3].term_details[0].index_term_as.as_deref(), Some("value"));
+        assert_eq!(bp_registry[3].term_details[1].index_term_as.as_deref(), Some("value"));
     }
 }

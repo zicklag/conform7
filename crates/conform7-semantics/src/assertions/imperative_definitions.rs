@@ -73,7 +73,7 @@ impl ImperativeDefinitions {
     /// 1. **Assess**: For each definition, call the family's `assess` method,
     ///    create an `IdBody`, and call the family's `given_body` method.
     /// 2. **Register**: For each family, call the family's `register` method.
-    /// 3. **To phrcd**: For each definition, call the family's `to_rcd` method
+    /// 3. **To rcd**: For each definition, call the family's `to_rcd` method
     ///    to provide runtime context data.
     /// 4. **Complete**: For each family, call the family's `assessment_complete`
     ///    method.

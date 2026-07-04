@@ -160,6 +160,7 @@ pub enum NodeType {
     Kind,
     PropertyList,
     XOfY,
+    Action,
     // Inform-only assertion nodes (from inform7/core-module/Chapter 1/Inform-Only Nodes and Annotations.w).
     Imperative,
     Trace,
@@ -231,6 +232,7 @@ impl NodeType {
             And => metadata("AND_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             Kind => metadata("KIND_NT", 0, 1, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             PropertyList => metadata("PROPERTY_LIST_NT", 0, u32::MAX, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
+            Action => metadata("ACTION_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             XOfY => metadata("X_OF_Y_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
 
             LocalVariable => metadata("LOCAL_VARIABLE_NT", 0, 0, Cat::Lvalue, NodeFlags::default()),

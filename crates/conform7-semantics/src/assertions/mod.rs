@@ -69,3 +69,11 @@ pub mod to_phrase_family;
 pub mod rule_family;
 pub mod refiner;
 pub mod creator;
+#[allow(clippy::module_inception)]
+pub mod assertions;
+pub mod property_knowledge;
+pub mod relational;
+pub mod new_property_assertions;
+pub mod implications;
+pub mod assemblies;
+pub mod special_meanings;

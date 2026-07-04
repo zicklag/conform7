@@ -22,11 +22,14 @@ use conform7_syntax::node_type::NodeType;
 use conform7_syntax::parse_node::ParseNode;
 
 use crate::assertions::anaphora::Anaphora;
+use crate::assertions::assertions::Assertions;
 use crate::assertions::classifying::Classifying;
 use crate::assertions::equations::Equations;
 use crate::assertions::imperative_subtrees::ImperativeSubtrees;
 use crate::assertions::plugin_calls::PluginCalls;
 use crate::assertions::property_sentences::PropertySentences;
+use crate::assertions::refiner::Refiner;
+use crate::assertions::special_meanings::SpecialMeanings;
 use crate::assertions::tables::Tables;
 
 /// The major nodes orchestrator.
@@ -47,11 +50,22 @@ impl MajorNodes {
         });
     }
 
-    /// Pass 1 — process assertions (stub).
+    /// Pass 1 — process assertions.
     ///
-    /// Deferred: needs Refiner, Assertions matrix.
-    pub fn pass_1(_tree: &mut ParseNode) {
-        // Deferred: assertion processing
+    /// This is the second of three passes through the syntax tree. It
+    /// corresponds to `MajorNodes::pass_1` in the C reference
+    /// (`inform7/core-module/Chapter 1/Pass 2 of 3.w`).
+    ///
+    /// For each SENTENCE_NT, this pass:
+    /// 1. Finds the VERB_NT child (the sentence diagram)
+    /// 2. Extracts px (subject) and py (object) from the verb node
+    /// 3. Calls Refiner::refine_coupling to refine both sides
+    /// 4. Tries special meanings
+    /// 5. Dispatches to Assertions::make_coupling
+    pub fn pass_1(tree: &mut ParseNode) {
+        tree.traverse_mut(&mut |node| {
+            Self::visit(node, 1);
+        });
     }
 
     /// Pass 2 — process remaining assertions (stub).
@@ -61,7 +75,7 @@ impl MajorNodes {
         // Deferred: remaining assertion processing
     }
 
-    fn visit(node: &mut ParseNode, _pass: i32) {
+    fn visit(node: &mut ParseNode, pass: i32) {
         match node.node_type() {
             NodeType::Root => {}
             NodeType::Heading => {
@@ -77,9 +91,15 @@ impl MajorNodes {
             }
             NodeType::DefnCont => {}
             NodeType::Sentence => {
-                Classifying::sentence(node);
-                PropertySentences::look_for_property_creation(node);
-                PluginCalls::new_assertion_notify(node);
+                if pass == 0 {
+                    // Pre-pass: diagram the sentence
+                    Classifying::sentence(node);
+                    PropertySentences::look_for_property_creation(node);
+                    PluginCalls::new_assertion_notify(node);
+                } else if pass == 1 {
+                    // Pass 1: process assertions
+                    Self::process_sentence(node);
+                }
             }
             NodeType::Imperative => {
                 ImperativeSubtrees::accept(node);
@@ -96,6 +116,44 @@ impl MajorNodes {
             NodeType::Inform6Code => {}
             NodeType::Bibliographic => {}
             _ => {}
+        }
+    }
+
+    /// Process a sentence node during pass 1.
+    ///
+    /// Extracts the verb phrase (VERB_NT child), refines the coupling,
+    /// tries special meanings, and dispatches to the assertion matrix.
+    fn process_sentence(node: &mut ParseNode) {
+        // Find the VERB_NT child (the sentence diagram from pre_pass)
+        let verb_node = match node.find_child_mut(NodeType::Verb) {
+            Some(v) => v,
+            None => return, // No verb diagram — not an assertion sentence
+        };
+
+        // Extract px (subject) and py (object) from the verb node's children.
+        // The VERB_NT has children: [subject, object] where each is an
+        // UNPARSED_NOUN_NT (or a more specific noun type after refinement).
+        let mut children = verb_node.take_children();
+        if children.len() < 2 {
+            // Not enough children — restore and skip
+            verb_node.set_children(children);
+            return;
+        }
+
+        // Take px (first child = subject) and py (second child = object)
+        let mut px = children.remove(0);
+        let mut py = children.remove(0);
+
+        // Restore remaining children (if any) to the verb node
+        verb_node.set_children(children);
+
+        // Refine the coupling
+        Refiner::refine_coupling(&mut px, &mut py, false);
+
+        // Try special meanings first
+        if !SpecialMeanings::try_special_meaning(&mut px, &mut py) {
+            // Dispatch to the assertion matrix
+            Assertions::make_coupling(&mut px, &mut py);
         }
     }
 }

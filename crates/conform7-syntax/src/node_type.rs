@@ -160,6 +160,11 @@ pub enum NodeType {
     Kind,
     PropertyList,
     XOfY,
+    // Inform-only assertion nodes (from inform7/core-module/Chapter 1/Inform-Only Nodes and Annotations.w).
+    Imperative,
+    Trace,
+    Inform6Code,
+    Bibliographic,
 }
 
 impl NodeType {
@@ -217,6 +222,11 @@ impl NodeType {
             ProperNoun => metadata("PROPER_NOUN_NT", 0, 0, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             Relationship => metadata("RELATIONSHIP_NT", 0, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             Called => metadata("CALLED_NT", 2, 2, Cat::L3, NodeFlags::default()),
+
+            Imperative => metadata("IMPERATIVE_NT", 0, u32::MAX, Cat::L2, NodeFlags::default()),
+            Trace => metadata("TRACE_NT", 0, 0, Cat::L2, NodeFlags::default()),
+            Inform6Code => metadata("INFORM6CODE_NT", 0, u32::MAX, Cat::L2, NodeFlags::default()),
+            Bibliographic => metadata("BIBLIOGRAPHIC_NT", 0, 0, Cat::L2, NodeFlags::default()),
             With => metadata("WITH_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             And => metadata("AND_NT", 2, 2, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),
             Kind => metadata("KIND_NT", 0, 1, Cat::L3, NodeFlags { assert: true, ..NodeFlags::default() }),

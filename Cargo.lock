@@ -25,6 +25,9 @@ dependencies = [
 [[package]]
 name = "conform7-semantics"
 version = "0.1.0"
+dependencies = [
+ "conform7-syntax",
+]
 
 [[package]]
 name = "conform7-syntax"

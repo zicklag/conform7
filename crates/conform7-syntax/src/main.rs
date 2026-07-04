@@ -273,6 +273,9 @@ fn show_annotations(node: &conform7_syntax::ParseNode, verbs: &Verbs) {
                     println!("        second_preposition[{}]: <invalid>", prep);
                 }
             }
+            Annotation::Classified => {
+                println!("        classified: true");
+            }
         }
     }
 }

@@ -26,6 +26,14 @@
 //! | [`adjectives_by_condition`] | `Chapter 8/Adjectives by Condition.w` | Condition-defined adjectives |
 //! | [`adjectives_by_inter_function`] | `Chapter 8/Adjectives by Inter Function.w` | Inter-routine-defined adjectives |
 //! | [`adjectives_by_inter_condition`] | `Chapter 8/Adjectives by Inter Condition.w` | Inter-condition-defined adjectives |
+//! | [`major_nodes`] | `Chapter 2/Major Nodes.w` | Three-pass traversal through the syntax tree |
+//! | [`classifying`] | `Chapter 2/Classifying Sentences.w` | Sentence diagramming via Preform matching |
+//! | [`anaphora`] | `Chapter 2/Anaphora.w` | Anaphoric reference tracking |
+//! | [`imperative_subtrees`] | `Chapter 2/Imperative Subtrees.w` | Imperative sentence processing |
+//! | [`plugin_calls`] | `Chapter 2/Plugin Calls.w` | Plugin notification for new assertions |
+//! | [`tables`] | `Chapter 2/Tables.w` | Table creation from TABLE_NT nodes |
+//! | [`equations`] | `Chapter 2/Equations.w` | Equation creation from EQUATION_NT nodes |
+//! | [`property_sentences`] | `Chapter 2/Property Sentences.w` | Property creation detection in sentences |
 //!
 //! # References
 //!
@@ -39,6 +47,15 @@
 //! - C reference: `inform7/assertions-module/Chapter 5/Rule Family.w`
 
 pub mod imperative_definition_families;
+
+pub mod major_nodes;
+pub mod classifying;
+pub mod anaphora;
+pub mod imperative_subtrees;
+pub mod plugin_calls;
+pub mod tables;
+pub mod equations;
+pub mod property_sentences;
 pub mod adjectives_by_condition;
 pub mod adjectives_by_phrase;
 pub mod adjectives_by_inter_function;

@@ -72,6 +72,13 @@ pub enum Annotation {
     /// - C reference: `services/linguistics-module/Chapter 4/Verb Phrases.w` —
     ///   `second_preposition_ANNOT` annotation.
     SecondPrepositionRef(crate::verbs::PrepositionRef),
+    /// Whether a SENTENCE_NT has been classified by the pre-pass.
+    ///
+    /// # References
+    ///
+    /// - C reference: `inform7/assertions-module/Chapter 2/Classifying Sentences.w` —
+    ///   `classified_ANNOT` annotation.
+    Classified,
 }
 
 /// A single node in an Inform 7 syntax tree.
@@ -400,6 +407,29 @@ impl ParseNode {
             return true;
         }
         self.children().any(|child| child.contains(other))
+    }
+    /// Check if this node represents a purely textual sentence (just quoted text).
+    pub fn is_textual(&self) -> bool {
+        // Simplified: a node is textual if it has no children and its wording
+        // is non-empty (indicating it contains quoted text).
+        self.child_count() == 0 && !self.wording.is_empty()
+    }
+
+    /// Perform a mutable depth-first traversal of the tree rooted at this node.
+    ///
+    /// Calls `visitor` on each node in pre-order (parent before children).
+    pub fn traverse_mut(&mut self, visitor: &mut impl FnMut(&mut ParseNode)) {
+        visitor(self);
+        // Use raw pointers to iterate the linked list without borrow conflicts.
+        // SAFETY: we hold exclusive `&mut self` on the tree root, so no other
+        // reference can alias these nodes.
+        let mut raw = self.down.as_mut().map(|b| &mut **b as *mut ParseNode);
+        while let Some(ptr) = raw {
+            let node = unsafe { &mut *ptr };
+            let next_raw = node.next.as_mut().map(|b| &mut **b as *mut ParseNode);
+            node.traverse_mut(visitor);
+            raw = next_raw;
+        }
     }
 }
 

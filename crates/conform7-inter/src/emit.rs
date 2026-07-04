@@ -203,4 +203,98 @@ mod tests {
         let symbol = pkg.symbols.get(sym).unwrap();
         assert_eq!(symbol.name, "X");
     }
+
+    #[test]
+    fn test_emit_numeric_constant_negative() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        let _sym = emit_numeric_constant(&mut tree, main, "NEG", -42);
+        let pkg = tree.find_package("/main").unwrap();
+        match &pkg.items[0] {
+            PackageItem::Instruction(instr) => {
+                assert_eq!(instr.field(3), Some((-42i32) as u32));
+            }
+            _ => panic!("expected instruction"),
+        }
+    }
+
+    #[test]
+    fn test_emit_numeric_constant_zero() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        let _sym = emit_numeric_constant(&mut tree, main, "ZERO", 0);
+        let pkg = tree.find_package("/main").unwrap();
+        match &pkg.items[0] {
+            PackageItem::Instruction(instr) => {
+                assert_eq!(instr.field(3), Some(0));
+            }
+            _ => panic!("expected instruction"),
+        }
+    }
+
+    #[test]
+    fn test_emit_text_constant_empty() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        let _sym = emit_text_constant(&mut tree, main, "EMPTY", "");
+        let pkg = tree.find_package("/main").unwrap();
+        match &pkg.items[0] {
+            PackageItem::Instruction(instr) => {
+                let text_id = instr.field(3).unwrap();
+                let text = tree.get_string(text_id).unwrap();
+                assert_eq!(text, "");
+            }
+            _ => panic!("expected instruction"),
+        }
+    }
+
+    #[test]
+    fn test_emit_pragma_empty() {
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        emit_pragma(&mut tree, main, "");
+        let pkg = tree.find_package("/main").unwrap();
+        match &pkg.items[0] {
+            PackageItem::Instruction(instr) => {
+                let text_id = instr.field(1).unwrap();
+                let text = tree.get_string(text_id).unwrap();
+                assert_eq!(text, "");
+            }
+            _ => panic!("expected instruction"),
+        }
+    }
+
+    #[test]
+    fn test_emit_numeric_roundtrip() {
+        use crate::textual;
+
+        let mut tree = InterTree::new();
+        let main = tree.main_package().resource_id;
+
+        // Emit constants
+        emit_numeric_constant(&mut tree, main, "X", 42);
+        emit_text_constant(&mut tree, main, "MSG", "hello");
+        emit_pragma(&mut tree, main, "test_pragma");
+        let child = emit_child_package(&mut tree, main, "sub", "_module");
+        emit_numeric_constant(&mut tree, child, "Y", 100);
+
+        // Write to textual form
+        let text_out = textual::write(&tree);
+        assert!(!text_out.is_empty(), "written output should not be empty");
+        assert!(text_out.contains("constant"), "output should contain constants");
+        assert!(text_out.contains("X"), "output should contain constant name X");
+        assert!(text_out.contains("Y"), "output should contain constant name Y");
+
+        // Read back
+        let tree2 = textual::read(&text_out).expect("should round-trip");
+        let main2 = tree2.find_package("/main").unwrap();
+        assert!(main2.symbols.get_by_name("X").is_some(), "X should exist after round-trip");
+        assert!(main2.symbols.get_by_name("MSG").is_some(), "MSG should exist after round-trip");
+        let sub2 = tree2.find_package("/main/sub").unwrap();
+        assert!(sub2.symbols.get_by_name("Y").is_some(), "Y should exist after round-trip");
+    }
 }

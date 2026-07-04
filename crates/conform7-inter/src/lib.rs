@@ -43,6 +43,7 @@
 //! | [`instruction`] | `Inter Constructs.w` | 30+ instruction types and their frame structure |
 //! | [`tree`] | `Inter Trees.w`, `Packages.w`, `Symbols Tables.w` | The core tree, package hierarchy, and symbol management |
 //! | [`textual`] | `Inter in Text Files.w` | Tab-indented human-readable format |
+//! | [`emit`] | — | Emission primitives for programmatically building Inter trees |
 //!
 //! # Usage
 //!

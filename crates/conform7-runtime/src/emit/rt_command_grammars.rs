@@ -33,8 +33,24 @@ mod tests {
         let child_id = tree.find_package_by_path(&["main", "command_grammars"]);
         assert!(child_id.is_some(), "command_grammars package should exist");
 
-        // Verify the child package exists
-        let child_pkg = tree.find_package_mut_by_id(child_id.unwrap());
-        assert!(child_pkg.is_some());
+        // Verify constants exist with correct values
+        let child_pkg = tree.find_package_mut_by_id(child_id.unwrap()).unwrap();
+
+        let word_size_sym = child_pkg.symbols.get_by_name("DICT_WORD_SIZE").unwrap();
+        assert_eq!(word_size_sym.name, "DICT_WORD_SIZE");
+        assert_eq!(word_size_sym.symbol_type, conform7_inter::tree::SymbolType::Constant);
+
+        let entry_bytes_sym = child_pkg.symbols.get_by_name("DICT_ENTRY_BYTES").unwrap();
+        assert_eq!(entry_bytes_sym.name, "DICT_ENTRY_BYTES");
+        assert_eq!(entry_bytes_sym.symbol_type, conform7_inter::tree::SymbolType::Constant);
+
+        // Verify instruction values
+        let instrs: Vec<&conform7_inter::instruction::Instruction> = child_pkg.instructions().collect();
+        assert_eq!(instrs.len(), 2, "should have 2 constant instructions");
+
+        // DICT_WORD_SIZE = 4
+        assert_eq!(instrs[0].field(3), Some(4), "DICT_WORD_SIZE should be 4");
+        // DICT_ENTRY_BYTES = 64
+        assert_eq!(instrs[1].field(3), Some(64), "DICT_ENTRY_BYTES should be 64");
     }
 }

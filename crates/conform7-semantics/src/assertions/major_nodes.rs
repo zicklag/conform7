@@ -23,9 +23,11 @@ use conform7_syntax::parse_node::ParseNode;
 
 use crate::assertions::anaphora::Anaphora;
 use crate::assertions::assertions::Assertions;
+use crate::assertions::bibliographic_data::BibliographicData;
 use crate::assertions::classifying::Classifying;
 use crate::assertions::equations::Equations;
 use crate::assertions::imperative_subtrees::ImperativeSubtrees;
+use crate::assertions::intervention_requests::InterventionRequests;
 use crate::assertions::plugin_calls::PluginCalls;
 use crate::assertions::property_sentences::PropertySentences;
 use crate::assertions::refiner::Refiner;
@@ -68,13 +70,28 @@ impl MajorNodes {
         });
     }
 
-    /// Pass 2 — process remaining assertions (stub).
+    /// Pass 2 — process remaining assertions.
     ///
-    /// Deferred: needs Assertions matrix, World model.
-    pub fn pass_2(_tree: &mut ParseNode) {
-        // Deferred: remaining assertion processing
+    /// This is the third of three passes through the syntax tree. It
+    /// corresponds to `MajorNodes::pass_2` in the C reference
+    /// (`inform7/core-module/Chapter 1/Pass 3 of 3.w`).
+    ///
+    /// For each SENTENCE_NT, this pass:
+    /// 1. Checks if the sentence is textual (just quoted text)
+    /// 2. Textual → calls Assertions::make_appearance (stub)
+    /// 3. Non-textual → extracts VERB_NT child, dispatches to assertion matrix
+    ///    (skips refinement)
+    ///
+    /// Also handles INFORM6CODE_NT and BIBLIOGRAPHIC_NT nodes.
+    pub fn pass_2(tree: &mut ParseNode) {
+        tree.traverse_mut(&mut |node| {
+            Self::visit(node, 2);
+        });
+        // Post-traversal: deduce object instance kinds (stub)
+        // World::deduce_object_instance_kinds() — deferred
     }
 
+    #[allow(clippy::collapsible_match)]
     fn visit(node: &mut ParseNode, pass: i32) {
         match node.node_type() {
             NodeType::Root => {}
@@ -99,6 +116,9 @@ impl MajorNodes {
                 } else if pass == 1 {
                     // Pass 1: process assertions
                     Self::process_sentence(node);
+                } else if pass == 2 {
+                    // Pass 2: process remaining assertions
+                    Self::process_sentence_pass_2(node);
                 }
             }
             NodeType::Imperative => {
@@ -113,8 +133,16 @@ impl MajorNodes {
             NodeType::Trace => {
                 // Toggle trace — deferred
             }
-            NodeType::Inform6Code => {}
-            NodeType::Bibliographic => {}
+            NodeType::Inform6Code => {
+                if pass == 2 {
+                    InterventionRequests::make(node);
+                }
+            }
+            NodeType::Bibliographic => {
+                if pass == 2 {
+                    BibliographicData::bibliographic_data(node);
+                }
+            }
             _ => {}
         }
     }
@@ -155,6 +183,39 @@ impl MajorNodes {
             // Dispatch to the assertion matrix
             Assertions::make_coupling(&mut px, &mut py);
         }
+    }
+
+    /// Process a sentence node during pass 2.
+    ///
+    /// Textual sentences call `Assertions::make_appearance` (stub).
+    /// Non-textual sentences extract the VERB_NT child and dispatch to the
+    /// assertion matrix without refinement.
+    fn process_sentence_pass_2(node: &mut ParseNode) {
+        if Classifying::sentence_is_textual(node) {
+            // Textual sentence — make appearance assertion (stub)
+            Assertions::make_appearance(node);
+            return;
+        }
+
+        // Non-textual sentence: extract verb phrase and dispatch to matrix
+        // (skip refinement — already done in pass 1)
+        let verb_node = match node.find_child_mut(NodeType::Verb) {
+            Some(v) => v,
+            None => return,
+        };
+
+        let mut children = verb_node.take_children();
+        if children.len() < 2 {
+            verb_node.set_children(children);
+            return;
+        }
+
+        let mut px = children.remove(0);
+        let mut py = children.remove(0);
+        verb_node.set_children(children);
+
+        // Dispatch directly to the assertion matrix (skip refinement)
+        Assertions::make_coupling_pass_2(&mut px, &mut py);
     }
 }
 
@@ -228,8 +289,76 @@ mod tests {
     }
 
     #[test]
-    fn pass_2_stub_does_not_panic() {
+    fn pass_2_does_not_panic() {
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_sentence_node() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        let sentence = ParseNode::new(NodeType::Sentence, Wording::EMPTY);
+        tree.append_child(sentence);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_inform6_code() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        let code = ParseNode::new(NodeType::Inform6Code, Wording::EMPTY);
+        tree.append_child(code);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_bibliographic() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        let bib = ParseNode::new(NodeType::Bibliographic, Wording::EMPTY);
+        tree.append_child(bib);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_textual_sentence() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        // A textual sentence has no children and non-empty wording
+        let sentence = ParseNode::new(NodeType::Sentence, Wording::new(0, 5));
+        tree.append_child(sentence);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_non_textual_sentence_with_verb() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        let mut sentence = ParseNode::new(NodeType::Sentence, Wording::EMPTY);
+        // Add a verb child with subject and object
+        let mut verb = ParseNode::new(NodeType::Verb, Wording::EMPTY);
+        verb.append_child(ParseNode::new(NodeType::ProperNoun, Wording::EMPTY));
+        verb.append_child(ParseNode::new(NodeType::CommonNoun, Wording::EMPTY));
+        sentence.append_child(verb);
+        tree.append_child(sentence);
+        MajorNodes::pass_2(&mut tree);
+        // Should not panic
+    }
+
+    #[test]
+    fn pass_2_handles_all_node_types() {
+        let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
+        tree.append_child(ParseNode::new(NodeType::Heading, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::BeginHere, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::EndHere, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::DefnCont, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Imperative, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Table, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Equation, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Trace, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Inform6Code, Wording::EMPTY));
+        tree.append_child(ParseNode::new(NodeType::Bibliographic, Wording::EMPTY));
         MajorNodes::pass_2(&mut tree);
         // Should not panic
     }

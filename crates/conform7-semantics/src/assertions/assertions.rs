@@ -117,6 +117,56 @@ impl Assertions {
         Self::make_assertion_recursive_inner(px, py, case);
     }
 
+    /// Make an appearance assertion for a textual sentence (stub).
+    ///
+    /// This is called during pass 2 for textual sentences (sentences that
+    /// contain only quoted text with no structural assertions).
+    ///
+    /// # References
+    ///
+    /// - C reference: `Assertions::make_appearance` in
+    ///   `inform7/assertions-module/Chapter 3/Assertions.w`
+    pub fn make_appearance(_node: &mut ParseNode) {
+        // Deferred: appearance assertion processing
+    }
+
+    /// Make a coupling assertion during pass 2.
+    ///
+    /// Like `make_coupling`, but with pass-2-specific guards:
+    /// 1. Rejects three forms of assertion (stub problem messages)
+    /// 2. Case 8 returns early
+    ///
+    /// # References
+    ///
+    /// - C reference: `@<Reject three forms of assertion@>` in
+    ///   `inform7/assertions-module/Chapter 3/Assertions.w`
+    pub fn make_coupling_pass_2(px: &mut ParseNode, py: &mut ParseNode) {
+        // @<Reject three forms of assertion@> — stub guards
+        Self::reject_three_forms(px, py);
+
+        let case = Self::which_assertion_case(px, py);
+
+        // Case 8 returns early on pass 2
+        if case == 8 {
+            return;
+        }
+
+        Self::make_assertion_recursive_inner(px, py, case);
+    }
+
+    /// Reject three forms of assertion during pass 2 (stub).
+    ///
+    /// In the C reference, this emits problem messages for three assertion
+    /// forms that are not allowed during pass 2. Currently a stub.
+    ///
+    /// # References
+    ///
+    /// - C reference: `@<Reject three forms of assertion@>` in
+    ///   `inform7/assertions-module/Chapter 3/Assertions.w`
+    fn reject_three_forms(_px: &mut ParseNode, _py: &mut ParseNode) {
+        // Deferred: emit problem messages for disallowed assertion forms
+    }
+
     // ── Dispatch ───────────────────────────────────────────────────────────
 
     /// Dispatch to the appropriate case handler.

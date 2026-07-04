@@ -27,6 +27,20 @@ impl ImperativeSubtrees {
     pub fn accept(_node: &mut ParseNode) {
         // Deferred: imperative block parsing
     }
+
+    /// Accept all imperative subtrees (stub).
+    ///
+    /// Called during the assessment pass to process all registered
+    /// imperative subtrees. Currently a no-op; full implementation
+    /// is deferred.
+    ///
+    /// # References
+    ///
+    /// - C reference: `inform7/assertions-module/Chapter 2/Imperative Subtrees.w` —
+    ///   `ImperativeSubtrees::accept_all`
+    pub fn accept_all() {
+        // Deferred: full imperative subtree processing
+    }
 }
 
 #[cfg(test)]

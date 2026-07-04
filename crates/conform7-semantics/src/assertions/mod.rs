@@ -50,6 +50,7 @@
 //! - C reference: `inform7/assertions-module/Chapter 4/The Creator.w`
 
 pub mod imperative_definition_families;
+pub mod imperative_definitions;
 
 pub mod major_nodes;
 pub mod classifying;
@@ -59,6 +60,7 @@ pub mod plugin_calls;
 pub mod tables;
 pub mod tables_cseq;
 pub mod equations;
+pub mod phrases_cseq;
 pub mod property_sentences;
 pub mod adjectives_by_condition;
 pub mod adjectives_by_phrase;

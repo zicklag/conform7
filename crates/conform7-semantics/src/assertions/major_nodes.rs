@@ -287,9 +287,9 @@ mod tests {
         MajorNodes::pass_1(&mut tree);
         // Should not panic
     }
-
     #[test]
     fn pass_2_does_not_panic() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         MajorNodes::pass_2(&mut tree);
         // Should not panic
@@ -297,6 +297,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_sentence_node() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         let sentence = ParseNode::new(NodeType::Sentence, Wording::EMPTY);
         tree.append_child(sentence);
@@ -306,6 +307,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_inform6_code() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         let code = ParseNode::new(NodeType::Inform6Code, Wording::EMPTY);
         tree.append_child(code);
@@ -315,6 +317,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_bibliographic() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         let bib = ParseNode::new(NodeType::Bibliographic, Wording::EMPTY);
         tree.append_child(bib);
@@ -324,6 +327,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_textual_sentence() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         // A textual sentence has no children and non-empty wording
         let sentence = ParseNode::new(NodeType::Sentence, Wording::new(0, 5));
@@ -334,6 +338,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_non_textual_sentence_with_verb() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         let mut sentence = ParseNode::new(NodeType::Sentence, Wording::EMPTY);
         // Add a verb child with subject and object
@@ -348,6 +353,7 @@ mod tests {
 
     #[test]
     fn pass_2_handles_all_node_types() {
+        crate::knowledge::world::World::reset_stage();
         let mut tree = ParseNode::new(NodeType::Root, Wording::EMPTY);
         tree.append_child(ParseNode::new(NodeType::Heading, Wording::EMPTY));
         tree.append_child(ParseNode::new(NodeType::BeginHere, Wording::EMPTY));

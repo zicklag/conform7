@@ -80,3 +80,5 @@ pub mod assemblies;
 pub mod special_meanings;
 pub mod intervention_requests;
 pub mod bibliographic_data;
+pub mod mapping_hints;
+pub mod augment_cseq;

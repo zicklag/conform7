@@ -52,7 +52,6 @@ impl World {
     /// Corresponds to `World::deduce_object_instance_kinds` in the C reference
     /// (`inform7/core-module/Chapter 1/Pass 3 of 3.w`).
     pub fn deduce_object_instance_kinds() {
-        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
         Self::ask_plugins_at_stage(WORLD_STAGE_I);
     }
 
@@ -67,12 +66,10 @@ impl World {
         subjects: &mut [InferenceSubject],
         families: &[InferenceSubjectFamily],
     ) {
-        CURRENT_STAGE.store(WORLD_STAGE_II, Ordering::SeqCst);
+        Self::ask_plugins_at_stage(WORLD_STAGE_II);
         for i in 0..subjects.len() {
             InferenceSubjects::complete_model(i, subjects, families);
         }
-        Self::ask_plugins_at_stage(WORLD_STAGE_II);
-        CURRENT_STAGE.store(WORLD_STAGE_III, Ordering::SeqCst);
         Self::ask_plugins_at_stage(WORLD_STAGE_III);
     }
 
@@ -87,11 +84,10 @@ impl World {
         subjects: &mut [InferenceSubject],
         families: &[InferenceSubjectFamily],
     ) {
-        CURRENT_STAGE.store(WORLD_STAGE_IV, Ordering::SeqCst);
+        Self::ask_plugins_at_stage(WORLD_STAGE_IV);
         for i in 0..subjects.len() {
             InferenceSubjects::check_model(i, subjects, families);
         }
-        Self::ask_plugins_at_stage(WORLD_STAGE_IV);
     }
 
     /// Stage V: augment model world with low-level properties.
@@ -99,14 +95,27 @@ impl World {
     /// Corresponds to `World::stage_V` in the C reference
     /// (`inform7/core-module/Chapter 1/Pass 3 of 3.w`).
     pub fn stage_V() {
-        CURRENT_STAGE.store(WORLD_STAGE_V, Ordering::SeqCst);
         Self::ask_plugins_at_stage(WORLD_STAGE_V);
+    }
+
+    /// Reset the current building stage (for testing).
+    #[cfg(test)]
+    pub(crate) fn reset_stage() {
+        CURRENT_STAGE.store(-1, Ordering::SeqCst);
     }
 
     /// Notify plugins at a given world stage (stub).
     ///
     /// The real plugin system is deferred.
-    fn ask_plugins_at_stage(_stage: i32) {
+    fn ask_plugins_at_stage(stage: i32) {
+        assert_eq!(
+            CURRENT_STAGE.load(Ordering::SeqCst) + 1,
+            stage,
+            "ask_plugins_at_stage: stage {} must follow current stage {}",
+            stage,
+            CURRENT_STAGE.load(Ordering::SeqCst),
+        );
+        CURRENT_STAGE.store(stage, Ordering::SeqCst);
         // Deferred: plugin system
     }
 }
@@ -136,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_stages_ii_and_iii_sets_stages() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
         let mut subjects = Vec::new();
         let families = make_families();
 
@@ -147,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_stage_iv_sets_stage() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_III, Ordering::SeqCst);
         let mut subjects = Vec::new();
         let families = make_families();
 
@@ -157,14 +166,14 @@ mod tests {
 
     #[test]
     fn test_stage_v_sets_stage() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_IV, Ordering::SeqCst);
         World::stage_V();
         assert_eq!(World::current_building_stage(), WORLD_STAGE_V);
     }
 
     #[test]
     fn test_stages_ii_and_iii_calls_complete_model() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
         static CALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         CALLED.store(false, std::sync::atomic::Ordering::SeqCst);
         let families = vec![InferenceSubjectFamily::new(
@@ -188,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_stage_iv_calls_check_model() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_III, Ordering::SeqCst);
         static CALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         CALLED.store(false, std::sync::atomic::Ordering::SeqCst);
         let families = vec![InferenceSubjectFamily::new(
@@ -212,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_stages_ii_and_iii_with_multiple_subjects() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
         static CALL_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
         CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         let families = vec![InferenceSubjectFamily::new(
@@ -240,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_stage_iv_with_multiple_subjects() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_III, Ordering::SeqCst);
         static CALL_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
         CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         let families = vec![InferenceSubjectFamily::new(
@@ -267,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_stages_ii_and_iii_with_empty_subjects() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
         let mut subjects = Vec::new();
         let families = make_families();
         // Should not panic
@@ -277,11 +286,18 @@ mod tests {
 
     #[test]
     fn test_stage_iv_with_empty_subjects() {
-        CURRENT_STAGE.store(-1, Ordering::SeqCst);
+        CURRENT_STAGE.store(WORLD_STAGE_III, Ordering::SeqCst);
         let mut subjects = Vec::new();
         let families = make_families();
         // Should not panic
         World::stage_IV(&mut subjects, &families);
         assert_eq!(World::current_building_stage(), WORLD_STAGE_IV);
+    }
+
+    #[test]
+    #[should_panic(expected = "ask_plugins_at_stage: stage 4 must follow current stage 0")]
+    fn test_stage_v_panics_if_stage_iv_not_reached() {
+        CURRENT_STAGE.store(WORLD_STAGE_I, Ordering::SeqCst);
+        World::stage_V();
     }
 }
